@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "paths": {
+      "@edge-gym/shared-types":  ["../../packages/shared-types/src/index.ts"],
+      "@edge-gym/access-engine": ["../../packages/access-engine/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

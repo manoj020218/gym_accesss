@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EDGE GYM — Mobile App Preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;font-family:'Inter',sans-serif;margin:0;padding:0}
+body{background:#070710;color:#F1F5F9;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px 60px}
+
+/* Preview header */
+.preview-bar{width:100%;max-width:1100px;display:flex;align-items:center;justify-content:space-between;margin-bottom:40px}
+.preview-title{font-size:28px;font-weight:900;letter-spacing:-.04em}
+.grad-text{background:linear-gradient(135deg,#7C3AED,#22D3EE);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.screen-tabs{display:flex;gap:6px;background:rgba(255,255,255,.04);padding:5px;border-radius:12px;border:1px solid rgba(255,255,255,.08)}
+.stab{padding:7px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:#64748B;transition:all .2s}
+.stab.on{background:rgba(124,58,237,.2);color:#A78BFA;border:1px solid rgba(124,58,237,.3)}
+.stab:hover:not(.on){background:rgba(255,255,255,.06);color:#94A3B8}
+
+/* Phone frame grid */
+.phones-row{display:flex;gap:32px;align-items:flex-start;justify-content:center;flex-wrap:wrap;width:100%;max-width:1100px}
+
+/* Single phone */
+.phone-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}
+.phone-label{font-size:12px;color:#475569;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+
+/* Phone frame */
+.phone{width:320px;height:660px;background:#0A0A16;border-radius:44px;border:2px solid rgba(255,255,255,.12);box-shadow:0 0 0 8px rgba(255,255,255,.04),0 40px 80px rgba(0,0,0,.8);position:relative;overflow:hidden;flex-shrink:0}
+.phone-notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:120px;height:30px;background:#0A0A16;border-radius:0 0 18px 18px;z-index:20;display:flex;align-items:center;justify-content:center}
+.phone-notch-pill{width:70px;height:20px;background:#050510;border-radius:100px;display:flex;align-items:center;justify-content:center;gap:8px}
+.phone-cam{width:8px;height:8px;border-radius:50%;background:#1a1a2e;border:1px solid rgba(255,255,255,.1)}
+.phone-speaker{width:40px;height:4px;border-radius:100px;background:#111120}
+
+/* Screen inside phone */
+.screen{position:absolute;inset:0;overflow:hidden;background:#05050A}
+.screen-inner{height:100%;overflow-y:auto;padding-top:38px;padding-bottom:64px;-ms-overflow-style:none;scrollbar-width:none}
+.screen-inner::-webkit-scrollbar{display:none}
+
+/* Status bar */
+.status-bar{position:absolute;top:0;left:0;right:0;height:38px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 6px;z-index:15;background:transparent}
+.status-time{font-size:13px;font-weight:700;color:#F1F5F9}
+.status-icons{display:flex;align-items:center;gap:5px;color:#F1F5F9}
+
+/* Bottom nav */
+.bottom-nav{position:absolute;bottom:0;left:0;right:0;height:64px;background:rgba(8,8,20,.95);border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;padding:0 8px;z-index:15;backdrop-filter:blur(20px)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:10px;cursor:pointer;color:#475569;transition:all .2s;border:none;background:transparent}
+.nav-btn.active{color:#A78BFA}
+.nav-btn svg{width:20px;height:20px}
+.nav-btn span{font-size:10px;font-weight:600;letter-spacing:.02em}
+.nav-dot{width:4px;height:4px;border-radius:50%;background:#7C3AED;margin-top:-2px}
+
+/* Components inside phone */
+.phone-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:16px;margin:0 14px 12px}
+.phone-card-dark{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:16px;padding:14px;margin:0 14px 10px}
+.phone-section-title{font-size:18px;font-weight:800;letter-spacing:-.04em;padding:6px 18px 10px;color:#F1F5F9}
+.phone-label-sm{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#475569}
+
+.badge-sm{display:inline-flex;align-items:center;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:700}
+.badge-active-sm{background:rgba(16,185,129,.15);color:#34D399;border:1px solid rgba(16,185,129,.25)}
+.badge-expired-sm{background:rgba(248,113,113,.15);color:#F87171;border:1px solid rgba(248,113,113,.25)}
+.badge-due-sm{background:rgba(245,158,11,.15);color:#FBBF24;border:1px solid rgba(245,158,11,.25)}
+.badge-deny-sm{background:rgba(248,113,113,.12);color:#F87171}
+.badge-allow-sm{background:rgba(16,185,129,.12);color:#34D399}
+
+.av{display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;border-radius:10px}
+.av-p{background:linear-gradient(135deg,#7C3AED,#9333EA)}
+.av-c{background:linear-gradient(135deg,#0891B2,#22D3EE)}
+.av-g{background:linear-gradient(135deg,#059669,#10B981)}
+.av-a{background:linear-gradient(135deg,#D97706,#F59E0B)}
+.av-r{background:linear-gradient(135deg,#DC2626,#EF4444)}
+.av-i{background:linear-gradient(135deg,#4F46E5,#6366F1)}
+
+.ldot{width:7px;height:7px;border-radius:50%;background:#10B981;display:inline-block}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.blink{animation:blink 1.5s ease-in-out infinite}
+.ldot-r{background:#F87171}
+
+/* QR Pattern */
+.qr-grid{display:grid;grid-template-columns:repeat(21,1fr);gap:1px;width:160px;height:160px;padding:10px;background:#fff;border-radius:10px}
+.qr-cell{background:#000;border-radius:1px}
+.qr-cell.w{background:#fff}
+
+/* Gradient bg for screens */
+.grad-bg-screen{background:radial-gradient(ellipse 70% 50% at 20% 10%,rgba(124,58,237,.2) 0%,transparent 60%),radial-gradient(ellipse 60% 60% at 80% 80%,rgba(34,211,238,.1) 0%,transparent 60%),#05050A}
+
+/* Pulse ring for QR */
+@keyframes pulseRing{0%{transform:scale(.9);opacity:.8}70%{transform:scale(1.1);opacity:0}100%{transform:scale(1.1);opacity:0}}
+.pulse-ring{animation:pulseRing 2s ease-out infinite}
+
+/* Notif row */
+.notif-row{padding:12px 14px;border-radius:14px;margin:0 14px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);display:flex;gap:10px;align-items:flex-start;transition:background .15s;cursor:pointer}
+.notif-row:hover{background:rgba(255,255,255,.07)}
+.notif-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+
+/* Progress */
+.prog{height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#7C3AED,#22D3EE)}
+
+/* Gradient btn */
+.g-btn{background:linear-gradient(135deg,#7C3AED,#22D3EE);border:none;border-radius:14px;padding:14px;color:#fff;font-weight:700;font-size:14px;cursor:pointer;width:100%}
+.outline-btn{background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:12px;color:#94A3B8;font-size:13px;font-weight:600;cursor:pointer;width:100%}
+
+/* Owner dashboard mini card */
+.owner-kpi{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;text-align:center}
+
+/* Access event pill */
+.ev-pill{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;margin:0 14px 8px}
+
+/* Switch toggle */
+.toggle{width:40px;height:22px;background:rgba(124,58,237,.4);border-radius:100px;position:relative;cursor:pointer;transition:background .2s}
+.toggle.on{background:#7C3AED}
+.toggle-dot{width:18px;height:18px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;transition:transform .2s;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.toggle.on .toggle-dot{transform:translateX(18px)}
+
+/* Settings row */
+.settings-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+.settings-row:active{background:rgba(255,255,255,.03)}
+</style>
+</head>
+<body>
+
+<!-- Preview Header -->
+<div class="preview-bar">
+  <div>
+    <div class="preview-title"><span class="grad-text">EDGE GYM</span> Mobile App</div>
+    <div style="font-size:13px;color:#475569;margin-top:4px">UI/UX Preview · APK Design · React Native / Flutter</div>
+  </div>
+  <div class="screen-tabs">
+    <div class="stab on">All Screens</div>
+    <div class="stab">Owner View</div>
+    <div class="stab">Member View</div>
+    <div class="stab">Staff View</div>
+  </div>
+</div>
+
+<!-- Phones Row -->
+<div class="phones-row">
+
+  <!-- ══════════════════════════════════ PHONE 1: LOGIN ══════════════════════════════════ -->
+  <div class="phone-wrap">
+    <div class="phone-label">01 · Login</div>
+    <div class="phone">
+      <div class="phone-notch"><div class="phone-notch-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div></div>
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><rect x="0" y="6" width="4" height="14" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="12" y="1" width="4" height="19" rx="1"/><rect x="18" y="0" width="4" height="20" rx="1" opacity=".3"/></svg>
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><path d="M12 3C7.95 3 4.21 4.34 1.2 6.6L3 9c2.5-1.94 5.66-3 9-3s6.5 1.06 9 3l1.8-2.4C19.79 4.34 16.05 3 12 3zm0 6c-2.76 0-5.26 1.12-7.08 2.94L6.8 14c1.32-1.3 3.1-2 5.2-2s3.88.7 5.2 2l1.88-2.06C17.26 10.12 14.76 9 12 9zm0 6c-1.38 0-2.63.56-3.54 1.46L12 20l3.54-3.54C14.63 15.56 13.38 15 12 15z"/></svg>
+          <svg width="20" height="12" fill="currentColor" viewBox="0 0 40 24"><rect x="1" y="1" width="34" height="22" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="28" height="18" rx="3.5" fill="currentColor"/><path d="M37 9v6a3 3 0 000-6z"/></svg>
+        </div>
+      </div>
+      <div class="screen grad-bg-screen">
+        <div class="screen-inner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:38px 24px 20px">
+          <!-- Logo -->
+          <div style="width:72px;height:72px;background:linear-gradient(135deg,#7C3AED,#22D3EE);border-radius:24px;display:flex;align-items:center;justify-content:center;font-size:36px;box-shadow:0 0 40px rgba(124,58,237,.5);margin-bottom:20px">⚡</div>
+          <div style="font-size:26px;font-weight:900;letter-spacing:-.05em;margin-bottom:6px" class="grad-text">EDGE GYM</div>
+          <div style="font-size:13px;color:#475569;margin-bottom:40px">Access Beyond Limits</div>
+
+          <!-- Google btn -->
+          <div style="width:100%;background:#fff;border-radius:14px;padding:14px 20px;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;cursor:pointer">
+            <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            <span style="color:#111;font-size:14px;font-weight:700">Continue with Google</span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:12px;width:100%;margin-bottom:16px">
+            <div style="flex:1;height:1px;background:rgba(255,255,255,.08)"></div>
+            <span style="font-size:11px;color:#475569">or sign in with email</span>
+            <div style="flex:1;height:1px;background:rgba(255,255,255,.08)"></div>
+          </div>
+
+          <div style="width:100%;display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+            <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:13px 16px;font-size:13px;color:#94A3B8">📧 &nbsp;admin@edgegym.in</div>
+            <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:13px 16px;font-size:13px;color:#94A3B8">🔒 &nbsp;••••••••</div>
+          </div>
+
+          <button class="g-btn">Sign In</button>
+
+          <div style="margin-top:20px;font-size:11px;color:#475569;text-align:center">Member? <span style="color:#7C3AED;font-weight:600">Download Member App →</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════ PHONE 2: OWNER HOME ══════════════════════════════════ -->
+  <div class="phone-wrap">
+    <div class="phone-label">02 · Owner Dashboard</div>
+    <div class="phone">
+      <div class="phone-notch"><div class="phone-notch-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div></div>
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><rect x="0" y="6" width="4" height="14" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="12" y="1" width="4" height="19" rx="1"/><rect x="18" y="0" width="4" height="20" rx="1" opacity=".3"/></svg>
+          <svg width="20" height="12" fill="currentColor" viewBox="0 0 40 24"><rect x="1" y="1" width="34" height="22" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="28" height="18" rx="3.5" fill="currentColor"/><path d="M37 9v6a3 3 0 000-6z"/></svg>
+        </div>
+      </div>
+      <div class="screen">
+        <div class="screen-inner">
+          <!-- Top Header -->
+          <div style="padding:10px 18px 14px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;color:#475569;font-weight:600">WEDNESDAY, 7 MAY</div>
+              <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Good Morning, Rajesh 👋</div>
+            </div>
+            <div style="position:relative">
+              <div style="width:38px;height:38px;background:linear-gradient(135deg,#7C3AED,#9333EA);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800">RK</div>
+              <div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;background:#F87171;border-radius:50%;border:2px solid #05050A"></div>
+            </div>
+          </div>
+
+          <!-- Hero Card -->
+          <div style="margin:0 14px 14px;background:linear-gradient(135deg,#7C3AED,#22D3EE);border-radius:20px;padding:18px;position:relative;overflow:hidden">
+            <div style="position:absolute;top:-20px;right:-20px;width:100px;height:100px;background:rgba(255,255,255,.1);border-radius:50%"></div>
+            <div style="position:absolute;bottom:-30px;right:20px;width:70px;height:70px;background:rgba(255,255,255,.08);border-radius:50%"></div>
+            <div style="font-size:11px;font-weight:600;opacity:.8;letter-spacing:.04em;margin-bottom:4px">TODAY'S COLLECTION</div>
+            <div style="font-size:30px;font-weight:900;letter-spacing:-.05em">₹48,500</div>
+            <div style="font-size:12px;opacity:.8;margin-top:4px">▲ 12% · 23 transactions · 3 branches</div>
+            <div style="margin-top:14px;display:flex;gap:10px">
+              <div style="background:rgba(255,255,255,.15);border-radius:100px;padding:6px 14px;font-size:11px;font-weight:700">312 Entries</div>
+              <div style="background:rgba(255,255,255,.15);border-radius:100px;padding:6px 14px;font-size:11px;font-weight:700">847 Active</div>
+            </div>
+          </div>
+
+          <!-- KPI Grid -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 14px 14px">
+            <div class="owner-kpi">
+              <div style="font-size:22px;font-weight:800;color:#F87171">23</div>
+              <div style="font-size:10px;color:#475569;margin-top:2px">Expiring Soon</div>
+            </div>
+            <div class="owner-kpi">
+              <div style="font-size:22px;font-weight:800;color:#FBBF24">₹1.2L</div>
+              <div style="font-size:10px;color:#475569;margin-top:2px">Total Dues</div>
+            </div>
+            <div class="owner-kpi">
+              <div style="font-size:22px;font-weight:800;color:#34D399">19</div>
+              <div style="font-size:10px;color:#475569;margin-top:2px">Staff Present</div>
+            </div>
+            <div class="owner-kpi">
+              <div style="font-size:22px;font-weight:800;color:#A78BFA">42</div>
+              <div style="font-size:10px;color:#475569;margin-top:2px">Inside Now</div>
+            </div>
+          </div>
+
+          <!-- Branch Performance -->
+          <div class="phone-section-title" style="font-size:14px;padding:0 18px 10px">Branch Performance</div>
+          ${[
+            ['Koramangala','₹18,200','145 entries',78,'#34D399'],
+            ['Indiranagar','₹14,800','98 entries',58,'#22D3EE'],
+            ['HSR Layout','₹15,500','69 entries',65,'#FBBF24'],
+          ].map(([br,rev,ent,pct,c])=>`
+          <div class="phone-card-dark" style="padding:12px 14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:700">${br}</div>
+              <div style="font-size:14px;font-weight:800;color:${c}">${rev}</div>
+            </div>
+            <div class="prog"><div class="prog-fill" style="width:${pct}%;background:${c}"></div></div>
+            <div style="font-size:11px;color:#475569;margin-top:4px">${ent}</div>
+          </div>`).join('')}
+
+          <!-- Live Events -->
+          <div style="display:flex;align-items:center;gap:8px;padding:14px 18px 10px">
+            <div class="ldot blink"></div>
+            <div style="font-size:14px;font-weight:800;letter-spacing:-.02em">Live Access</div>
+          </div>
+          ${[
+            ['RS','Rahul Sharma','Main Entry','ALLOW','av-p'],
+            ['PN','Priya Nair','Weight Area','ALLOW','av-c'],
+            ['VR','Vikram Reddy','Main Entry','DENY','av-r'],
+          ].map(([init,name,zone,d,av])=>`
+          <div class="ev-pill">
+            <div class="av ${av}" style="width:32px;height:32px;font-size:11px;font-weight:800">${init}</div>
+            <div style="flex:1"><div style="font-size:12px;font-weight:600">${name}</div><div style="font-size:10px;color:#475569">${zone}</div></div>
+            <span class="badge-sm ${d==='ALLOW'?'badge-allow-sm':'badge-deny-sm'}">${d==='ALLOW'?'✓ IN':'✗ DENIED'}</span>
+          </div>`).join('')}
+          <div style="height:10px"></div>
+        </div>
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <button class="nav-btn active">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+            <span>Home</span>
+            <div class="nav-dot"></div>
+          </button>
+          <button class="nav-btn">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            <span>Members</span>
+          </button>
+          <button class="nav-btn">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>Access</span>
+          </button>
+          <button class="nav-btn">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            <span>Alerts</span>
+          </button>
+          <button class="nav-btn">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span>Profile</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════ PHONE 3: MEMBER QR ══════════════════════════════════ -->
+  <div class="phone-wrap">
+    <div class="phone-label">03 · Member QR Entry</div>
+    <div class="phone">
+      <div class="phone-notch"><div class="phone-notch-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div></div>
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><rect x="0" y="6" width="4" height="14" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="12" y="1" width="4" height="19" rx="1"/><rect x="18" y="0" width="4" height="20" rx="1" opacity=".3"/></svg>
+          <svg width="20" height="12" fill="currentColor" viewBox="0 0 40 24"><rect x="1" y="1" width="34" height="22" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="28" height="18" rx="3.5" fill="currentColor"/><path d="M37 9v6a3 3 0 000-6z"/></svg>
+        </div>
+      </div>
+      <div class="screen">
+        <div class="screen-inner">
+          <!-- Header -->
+          <div style="padding:10px 18px 16px;display:flex;align-items:center;justify-content:space-between">
+            <div>
+              <div style="font-size:11px;color:#475569;font-weight:600">MY MEMBERSHIP</div>
+              <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Arjun Patel</div>
+            </div>
+            <div class="badge-sm badge-active-sm" style="font-size:12px;padding:6px 14px">● ACTIVE</div>
+          </div>
+
+          <!-- QR Card -->
+          <div style="margin:0 14px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:24px;padding:24px;display:flex;flex-direction:column;align-items:center;position:relative;overflow:hidden">
+            <div style="position:absolute;top:-30px;left:-30px;width:100px;height:100px;background:rgba(124,58,237,.08);border-radius:50%;filter:blur(20px)"></div>
+            <div style="position:absolute;bottom:-20px;right:-20px;width:80px;height:80px;background:rgba(34,211,238,.06);border-radius:50%;filter:blur(15px)"></div>
+
+            <div style="font-size:11px;color:#64748B;font-weight:600;letter-spacing:.06em;margin-bottom:16px">SCAN TO ENTER</div>
+
+            <!-- QR code visual -->
+            <div style="position:relative;margin-bottom:16px">
+              <!-- Pulse rings -->
+              <div style="position:absolute;inset:-10px;border-radius:20px;border:2px solid rgba(124,58,237,.3)" class="pulse-ring"></div>
+              <div style="width:180px;height:180px;background:#fff;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:2px">
+                <!-- QR code pattern (simplified visual) -->
+                <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;flex:1">
+                  <!-- Corner markers + pattern -->
+                  ${(() => {
+                    const pattern = [
+                      1,1,1,1,1,1,1,0,1,1,0,1,0,0,1,1,1,1,1,1,1,
+                      1,0,0,0,0,0,1,0,0,1,1,0,1,0,1,0,0,0,0,0,1,
+                      1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,0,1,
+                      1,0,1,1,1,0,1,0,0,1,0,1,0,0,1,0,1,1,1,0,1,
+                      1,0,1,1,1,0,1,0,1,0,0,0,1,0,1,0,1,1,1,0,1,
+                      1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,
+                      1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,
+                      0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0,0,
+                      1,1,0,1,1,0,1,1,0,1,1,0,1,0,1,0,1,1,0,1,1,
+                      0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,1,0,0,1,0,0,
+                      1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,0,1,
+                      0,0,1,0,0,1,0,0,1,0,1,1,0,0,1,0,0,1,0,0,0,
+                      1,0,1,0,1,0,1,0,0,1,0,0,1,0,1,0,1,0,1,0,1,
+                      0,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,0,1,0,1,0,
+                      1,1,1,1,1,1,1,0,0,1,0,1,1,0,1,0,1,1,0,0,1,
+                      1,0,0,0,0,0,1,0,1,0,1,0,0,1,0,1,0,1,0,1,0,
+                      1,0,1,1,1,0,1,0,1,1,0,1,1,0,1,0,1,0,1,0,1,
+                      1,0,1,1,1,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,
+                      1,0,1,1,1,0,1,0,1,0,1,1,0,1,1,0,1,1,0,1,1,
+                      1,0,0,0,0,0,1,0,0,0,1,0,0,1,0,0,0,0,1,0,0,
+                      1,1,1,1,1,1,1,0,1,1,0,1,1,0,1,1,1,0,1,1,1,
+                    ];
+                    return pattern.map(v => `<div style="border-radius:2px;background:${v?'#111':'#fff'}"></div>`).join('');
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            <div style="font-size:13px;font-weight:700;color:#F1F5F9;letter-spacing:.1em;margin-bottom:4px">MEM · 009</div>
+            <div style="font-size:11px;color:#64748B">Premium Plan · Valid till Aug 05, 2026</div>
+
+            <!-- Membership bar -->
+            <div style="width:100%;margin-top:16px">
+              <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-bottom:4px">
+                <span>Membership</span>
+                <span>89 days left</span>
+              </div>
+              <div class="prog"><div class="prog-fill" style="width:75%"></div></div>
+            </div>
+          </div>
+
+          <!-- Allowed Zones -->
+          <div style="padding:0 18px 10px">
+            <div style="font-size:11px;font-weight:600;color:#475569;letter-spacing:.06em;margin-bottom:10px">ALLOWED ZONES</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${['🚪 Main Entry','🏃 Cardio','🏋️ Weights','🧘 PT Room','♨️ Steam'].map(z=>`<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.2);border-radius:100px;padding:5px 12px;font-size:11px;font-weight:600;color:#34D399">${z}</div>`).join('')}
+            </div>
+          </div>
+
+          <!-- Today's Attendance -->
+          <div class="phone-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:12px;font-weight:700">Today's Activity</div>
+              <div class="badge-sm badge-active-sm">Checked In</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="text-align:center"><div style="font-size:18px;font-weight:800;color:#34D399">1</div><div style="font-size:10px;color:#475569">Today</div></div>
+              <div style="width:1px;height:30px;background:rgba(255,255,255,.08)"></div>
+              <div style="text-align:center"><div style="font-size:18px;font-weight:800">18</div><div style="font-size:10px;color:#475569">This Month</div></div>
+              <div style="width:1px;height:30px;background:rgba(255,255,255,.08)"></div>
+              <div style="text-align:center"><div style="font-size:18px;font-weight:800;color:#A78BFA">89%</div><div style="font-size:10px;color:#475569">Attendance</div></div>
+            </div>
+          </div>
+          <div style="height:10px"></div>
+        </div>
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span>Home</span></button>
+          <button class="nav-btn active"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg><span>My Card</span><div class="nav-dot"></div></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span>History</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span>Alerts</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profile</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════ PHONE 4: NOTIFICATIONS ══════════════════════════════════ -->
+  <div class="phone-wrap">
+    <div class="phone-label">04 · Notifications</div>
+    <div class="phone">
+      <div class="phone-notch"><div class="phone-notch-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div></div>
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><rect x="0" y="6" width="4" height="14" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="12" y="1" width="4" height="19" rx="1"/><rect x="18" y="0" width="4" height="20" rx="1" opacity=".3"/></svg>
+          <svg width="20" height="12" fill="currentColor" viewBox="0 0 40 24"><rect x="1" y="1" width="34" height="22" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="28" height="18" rx="3.5" fill="currentColor"/><path d="M37 9v6a3 3 0 000-6z"/></svg>
+        </div>
+      </div>
+      <div class="screen">
+        <div class="screen-inner">
+          <div style="padding:10px 18px 16px;display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Notifications</div>
+            <div style="background:rgba(248,113,113,.15);color:#F87171;border:1px solid rgba(248,113,113,.25);padding:4px 12px;border-radius:100px;font-size:11px;font-weight:700">5 unread</div>
+          </div>
+
+          <!-- Today -->
+          <div style="padding:0 18px 8px;font-size:11px;font-weight:600;color:#475569;letter-spacing:.06em">TODAY</div>
+
+          <div class="notif-row" style="border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04)">
+            <div class="notif-icon" style="background:rgba(245,158,11,.12)">⚠️</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:#FBBF24">Membership Expiring Soon</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">Your Premium plan expires in 3 days. Renew now to avoid interruption.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">2 hours ago · PowerHub</div>
+            </div>
+          </div>
+
+          <div class="notif-row" style="border-color:rgba(16,185,129,.15);background:rgba(16,185,129,.04)">
+            <div class="notif-icon" style="background:rgba(16,185,129,.12)">✅</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:#34D399">Entry Confirmed</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">You checked in at PowerHub Koramangala at 06:42 AM.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">6:42 AM · Main Entry</div>
+            </div>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-icon" style="background:rgba(124,58,237,.12)">🎂</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700">Happy Birthday, Arjun! 🎉</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">Wishing you a great day! Enjoy 10% off on any supplement today.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">9:00 AM · PowerHub Team</div>
+            </div>
+          </div>
+
+          <!-- Yesterday -->
+          <div style="padding:14px 18px 8px;font-size:11px;font-weight:600;color:#475569;letter-spacing:.06em">YESTERDAY</div>
+
+          <div class="notif-row">
+            <div class="notif-icon" style="background:rgba(34,211,238,.12)">💬</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700">Message from Trainer Raj</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">Great progress this week! Keep up the squats routine for next session.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">Yesterday · Raj Malhotra</div>
+            </div>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-icon" style="background:rgba(16,185,129,.12)">💳</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:#34D399">Payment Received</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">₹3,999 received for Premium Monthly. Invoice #INV-2024.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">Yesterday · UPI Payment</div>
+            </div>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-icon" style="background:rgba(245,158,11,.12)">🛒</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700;color:#FBBF24">Flash Sale — Supplements</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">20% off on all Whey Protein this weekend only! Order at reception.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">Yesterday · Promotion</div>
+            </div>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-icon" style="background:rgba(99,102,241,.12)">📅</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:700">Gym Closed — Public Holiday</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">PowerHub will be closed on May 12 (Buddha Purnima). Plan accordingly.</div>
+              <div style="font-size:10px;color:#475569;margin-top:4px">2 days ago · Management</div>
+            </div>
+          </div>
+          <div style="height:10px"></div>
+        </div>
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span>Home</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg><span>My Card</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span>History</span></button>
+          <button class="nav-btn active"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span>Alerts</span><div class="nav-dot"></div></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profile</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════ PHONE 5: MEMBER PROFILE ══════════════════════════════════ -->
+  <div class="phone-wrap">
+    <div class="phone-label">05 · Member Profile</div>
+    <div class="phone">
+      <div class="phone-notch"><div class="phone-notch-pill"><div class="phone-cam"></div><div class="phone-speaker"></div></div></div>
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="14" height="12" fill="currentColor" viewBox="0 0 24 20"><rect x="0" y="6" width="4" height="14" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="12" y="1" width="4" height="19" rx="1"/><rect x="18" y="0" width="4" height="20" rx="1" opacity=".3"/></svg>
+          <svg width="20" height="12" fill="currentColor" viewBox="0 0 40 24"><rect x="1" y="1" width="34" height="22" rx="5" stroke="currentColor" stroke-width="2" fill="none"/><rect x="3" y="3" width="28" height="18" rx="3.5" fill="currentColor"/><path d="M37 9v6a3 3 0 000-6z"/></svg>
+        </div>
+      </div>
+      <div class="screen">
+        <div class="screen-inner">
+          <!-- Profile Hero -->
+          <div style="background:linear-gradient(180deg,rgba(124,58,237,.2) 0%,transparent 100%);padding:20px 18px 10px">
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+              <div style="width:64px;height:64px;background:linear-gradient(135deg,#7C3AED,#9333EA);border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;box-shadow:0 0 20px rgba(124,58,237,.4)">AP</div>
+              <div>
+                <div style="font-size:18px;font-weight:800;letter-spacing:-.03em">Arjun Patel</div>
+                <div style="font-size:12px;color:#64748B;margin-top:2px">MEM009 · Premium Member</div>
+                <div style="margin-top:5px"><span class="badge-sm badge-active-sm">● Active</span></div>
+              </div>
+            </div>
+            <!-- Quick Stats -->
+            <div style="display:flex;gap:10px">
+              <div style="flex:1;background:rgba(255,255,255,.06);border-radius:12px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;color:#A78BFA">18</div>
+                <div style="font-size:10px;color:#475569">Visits/Month</div>
+              </div>
+              <div style="flex:1;background:rgba(255,255,255,.06);border-radius:12px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;color:#34D399">89%</div>
+                <div style="font-size:10px;color:#475569">Attendance</div>
+              </div>
+              <div style="flex:1;background:rgba(255,255,255,.06);border-radius:12px;padding:10px;text-align:center">
+                <div style="font-size:18px;font-weight:800;color:#22D3EE">89</div>
+                <div style="font-size:10px;color:#475569">Days Left</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Membership Card -->
+          <div class="phone-card" style="background:linear-gradient(135deg,rgba(124,58,237,.15),rgba(34,211,238,.08));border-color:rgba(124,58,237,.2)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-size:13px;font-weight:700">Premium Plan</div>
+              <div style="font-size:12px;color:#A78BFA;font-weight:600">₹3,999/mo</div>
+            </div>
+            <div class="prog"><div class="prog-fill" style="width:75%"></div></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#475569;margin-top:5px">
+              <span>Started: Jul 05, 2026</span>
+              <span>Ends: Aug 05, 2026</span>
+            </div>
+            <button class="g-btn" style="margin-top:12px;padding:11px;font-size:13px">Renew Membership</button>
+          </div>
+
+          <!-- Assigned Trainer -->
+          <div class="phone-card">
+            <div style="font-size:11px;color:#475569;font-weight:600;letter-spacing:.06em;margin-bottom:10px">PERSONAL TRAINER</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div class="av av-g" style="width:44px;height:44px;font-size:16px;font-weight:800">RM</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700">Raj Malhotra</div>
+                <div style="font-size:12px;color:#64748B">Senior Trainer · 6AM – 12PM</div>
+                <div style="display:flex;gap:4px;margin-top:4px">
+                  ${['Strength','Cardio','HIIT'].map(t=>`<div style="background:rgba(255,255,255,.07);border-radius:100px;padding:3px 9px;font-size:10px;font-weight:600;color:#94A3B8">${t}</div>`).join('')}
+                </div>
+              </div>
+              <div style="width:36px;height:36px;background:rgba(34,211,238,.1);border-radius:10px;display:flex;align-items:center;justify-content:center">
+                <svg width="16" height="16" fill="none" stroke="#22D3EE" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div style="padding:0 14px 4px">
+            <div style="font-size:11px;font-weight:600;color:#475569;letter-spacing:.06em;margin-bottom:8px;padding-left:2px">PREFERENCES</div>
+            <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:16px;overflow:hidden">
+              ${[
+                ['🔔','Push Notifications','on'],
+                ['📧','Email Reminders','on'],
+                ['💬','WhatsApp Alerts','off'],
+                ['🎂','Birthday Offers','on'],
+              ].map(([icon,label,state])=>`
+              <div class="settings-row">
+                <div style="width:34px;height:34px;background:rgba(255,255,255,.06);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">${icon}</div>
+                <div style="font-size:13px;font-weight:500;flex:1">${label}</div>
+                <div class="toggle ${state==='on'?'on':''}"><div class="toggle-dot"></div></div>
+              </div>`).join('')}
+            </div>
+          </div>
+
+          <div style="padding:16px 14px">
+            <button class="outline-btn" style="color:#F87171;border-color:rgba(248,113,113,.2)">Sign Out</button>
+          </div>
+        </div>
+        <!-- Bottom Nav -->
+        <div class="bottom-nav">
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg><span>Home</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 21V9"/></svg><span>My Card</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span>History</span></button>
+          <button class="nav-btn"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span>Alerts</span></button>
+          <button class="nav-btn active"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Profile</span><div class="nav-dot"></div></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /phones-row -->
+
+<!-- Legend -->
+<div style="margin-top:48px;text-align:center;max-width:800px">
+  <div style="font-size:11px;color:#334155;letter-spacing:.06em;font-weight:600;text-transform:uppercase;margin-bottom:16px">Design System</div>
+  <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
+    ${[
+      ['#7C3AED','Primary Purple'],
+      ['#22D3EE','Accent Cyan'],
+      ['#10B981','Success Green'],
+      ['#F59E0B','Warning Amber'],
+      ['#F87171','Danger Red'],
+    ].map(([c,l])=>`<div style="display:flex;align-items:center;gap:8px"><div style="width:14px;height:14px;border-radius:4px;background:${c}"></div><span style="font-size:12px;color:#475569">${l}</span></div>`).join('')}
+  </div>
+  <div style="font-size:12px;color:#334155">
+    Built for: <span style="color:#7C3AED;font-weight:600">React Native + Expo</span> (APK) ·
+    <span style="color:#22D3EE;font-weight:600">React PWA</span> (Web Admin) ·
+    Dark Mode First · Glassmorphism · Gen Z Aesthetic
+  </div>
+</div>
+
+</body>
+</html>

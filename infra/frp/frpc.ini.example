@@ -1,0 +1,11 @@
+[common]
+server_addr = your-vps-ip
+server_port = 7000
+token       = your_frp_token
+
+# Branch edge service → VPS tunnel
+[edge-branch1]
+type        = tcp
+local_ip    = 127.0.0.1
+local_port  = 8091
+remote_port = 18091

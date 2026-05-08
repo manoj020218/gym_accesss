@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "EDGE GYM",
+    "slug": "edge-gym-member",
+    "version": "1.0.0",
+    "scheme": "edgegym",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#05050A",
+    "splash": {
+      "backgroundColor": "#05050A"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "in.edgegym.member"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#05050A"
+      },
+      "package": "in.edgegym.member",
+      "permissions": ["RECEIVE_BOOT_COMPLETED", "VIBRATE"]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#7C3AED"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

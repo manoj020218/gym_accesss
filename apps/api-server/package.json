@@ -1,0 +1,38 @@
+{
+  "name": "@edge-gym/api-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev":   "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint":  "tsc --noEmit",
+    "test":  "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@edge-gym/shared-types": "workspace:*",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/jwt": "^8.0.1",
+    "fastify": "^4.28.1",
+    "fastify-plugin": "^4.5.1",
+    "firebase-admin": "^12.2.0",
+    "mongoose": "^8.4.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.2.0",
+    "pino-pretty": "^11.2.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.2",
+    "@types/node-cron": "^3.0.11",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb-memory-server": "^10.0.0",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

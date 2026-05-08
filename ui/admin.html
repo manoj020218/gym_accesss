@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EDGE GYM — Control Panel</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;font-family:'Inter',sans-serif}
+body{background:#05050A;color:#F1F5F9;min-height:100vh;margin:0}
+
+.glass{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);backdrop-filter:blur(12px)}
+.glass2{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)}
+
+.grad-text{background:linear-gradient(135deg,#7C3AED 0%,#22D3EE 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.grad-bg{background:linear-gradient(135deg,#7C3AED,#22D3EE)}
+
+/* Pages */
+.page{display:none}
+.page.active{display:block;animation:fadeUp .25s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* Nav */
+.nav-link{display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:10px;cursor:pointer;transition:all .15s;color:#64748B;font-size:13px;font-weight:500;margin:1px 10px;border:1px solid transparent}
+.nav-link:hover{background:rgba(255,255,255,0.05);color:#CBD5E1}
+.nav-link.active{background:rgba(124,58,237,0.15);color:#A78BFA;border-color:rgba(124,58,237,0.2)}
+.nav-link svg{width:16px;height:16px;flex-shrink:0}
+
+/* Cards */
+.kpi-card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;transition:all .2s;cursor:default}
+.kpi-card:hover{transform:translateY(-2px);border-color:rgba(124,58,237,0.3);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.hover-lift{transition:transform .2s,box-shadow .2s}
+.hover-lift:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.4)}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;padding:2px 10px;border-radius:100px;font-size:11px;font-weight:600;letter-spacing:.02em}
+.badge-active{background:rgba(16,185,129,.12);color:#34D399;border:1px solid rgba(16,185,129,.25)}
+.badge-expired{background:rgba(248,113,113,.12);color:#F87171;border:1px solid rgba(248,113,113,.25)}
+.badge-frozen{background:rgba(34,211,238,.12);color:#22D3EE;border:1px solid rgba(34,211,238,.25)}
+.badge-due{background:rgba(245,158,11,.12);color:#FBBF24;border:1px solid rgba(245,158,11,.25)}
+.badge-allow{background:rgba(16,185,129,.12);color:#34D399}
+.badge-deny{background:rgba(248,113,113,.12);color:#F87171}
+.badge-role-manager{background:rgba(124,58,237,.12);color:#A78BFA;border:1px solid rgba(124,58,237,.25)}
+.badge-role-trainer{background:rgba(34,211,238,.12);color:#22D3EE;border:1px solid rgba(34,211,238,.25)}
+.badge-role-reception{background:rgba(16,185,129,.12);color:#34D399;border:1px solid rgba(16,185,129,.25)}
+.badge-role-cleaner{background:rgba(148,163,184,.12);color:#94A3B8;border:1px solid rgba(148,163,184,.2)}
+
+/* Table */
+.trow{border-bottom:1px solid rgba(255,255,255,.04);transition:background .1s}
+.trow:hover{background:rgba(124,58,237,.05)}
+
+/* Inputs */
+.inp{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:9px 14px;color:#F1F5F9;transition:border-color .2s;font-size:14px}
+.inp:focus{outline:none;border-color:rgba(124,58,237,.5);box-shadow:0 0 0 3px rgba(124,58,237,.08)}
+.inp::placeholder{color:#475569}
+
+/* Buttons */
+.btn-primary{background:linear-gradient(135deg,#7C3AED,#22D3EE);border:none;border-radius:10px;padding:10px 20px;color:#fff;font-weight:600;font-size:14px;cursor:pointer;transition:opacity .2s,transform .2s}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 4px 20px rgba(124,58,237,.4)}
+.btn-outline{background:transparent;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px 16px;color:#94A3B8;font-size:13px;cursor:pointer;transition:all .2s}
+.btn-outline:hover{border-color:rgba(124,58,237,.4);color:#A78BFA}
+.btn-ghost{background:transparent;border:none;color:#64748B;cursor:pointer;padding:6px;border-radius:8px;transition:all .2s}
+.btn-ghost:hover{background:rgba(255,255,255,.06);color:#CBD5E1}
+
+/* Chips */
+.chip{padding:5px 14px;border-radius:100px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,.1);color:#64748B;background:transparent;transition:all .2s}
+.chip:hover{border-color:rgba(255,255,255,.2);color:#94A3B8}
+.chip.on{background:rgba(124,58,237,.15);border-color:rgba(124,58,237,.4);color:#A78BFA}
+
+/* Avatar */
+.av{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.av-lg{width:44px;height:44px;border-radius:12px;font-size:15px}
+.av-purple{background:linear-gradient(135deg,#7C3AED,#9333EA)}
+.av-cyan{background:linear-gradient(135deg,#0891B2,#22D3EE)}
+.av-green{background:linear-gradient(135deg,#059669,#10B981)}
+.av-amber{background:linear-gradient(135deg,#D97706,#F59E0B)}
+.av-red{background:linear-gradient(135deg,#DC2626,#EF4444)}
+.av-indigo{background:linear-gradient(135deg,#4F46E5,#6366F1)}
+.av-pink{background:linear-gradient(135deg,#BE185D,#EC4899)}
+
+/* Progress */
+.prog{height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,#7C3AED,#22D3EE)}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(124,58,237,.3);border-radius:2px}
+
+/* Sidebar */
+#sidebar{width:228px;background:rgba(6,6,14,.96);border-right:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;height:100vh;position:fixed;left:0;top:0;z-index:100}
+#main-wrap{margin-left:228px;height:100vh;display:flex;flex-direction:column}
+#hdr{background:rgba(5,5,10,.9);border-bottom:1px solid rgba(255,255,255,.06);padding:12px 24px;display:flex;align-items:center;gap:14px;backdrop-filter:blur(12px);position:sticky;top:0;z-index:50;flex-shrink:0}
+#content{flex:1;overflow-y:auto;padding:24px;background:#05050A}
+
+/* Live dot */
+.ldot{width:7px;height:7px;border-radius:50%;background:#10B981;display:inline-block;flex-shrink:0}
+.ldot-red{background:#F87171}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.blink{animation:blink 1.5s ease-in-out infinite}
+
+/* Toast */
+#toast{position:fixed;bottom:24px;right:24px;z-index:500;display:none}
+.toast-inner{background:#111122;border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:13px 20px;font-size:13px;box-shadow:0 8px 40px rgba(0,0,0,.6);animation:toastIn .3s ease}
+@keyframes toastIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+
+/* Modal */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center}
+.modal-box{background:#0C0C1A;border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:28px;width:480px;max-width:90vw;animation:fadeUp .2s ease}
+
+/* Login */
+#login-pg{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse 80% 60% at 15% 15%,rgba(124,58,237,.25) 0%,transparent 55%),radial-gradient(ellipse 70% 70% at 85% 85%,rgba(34,211,238,.12) 0%,transparent 55%),#05050A}
+
+/* Zone cards */
+.zone-ok{background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2)}
+.zone-off{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}
+.zone-deny{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2)}
+
+/* Trend indicator */
+.up{color:#34D399;font-size:12px;font-weight:600}
+.dn{color:#F87171;font-size:12px;font-weight:600}
+.neutral{color:#94A3B8;font-size:12px}
+
+/* Section label */
+.sec-label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:10px}
+.sec-title{font-size:22px;font-weight:800;letter-spacing:-.03em;color:#F1F5F9}
+
+/* Notification dot */
+.ndot{position:absolute;top:0;right:0;width:8px;height:8px;background:#F87171;border-radius:50%;border:2px solid #05050A}
+
+/* Stats number */
+.stat-num{font-size:28px;font-weight:800;letter-spacing:-.04em;line-height:1}
+
+/* Event row anim */
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+.ev-new{animation:slideIn .35s ease}
+
+/* Product stock */
+.stock-low{color:#F87171}
+.stock-ok{color:#34D399}
+.stock-warn{color:#FBBF24}
+
+/* Google btn */
+.google-btn{background:#fff;color:#1F2937;border:none;border-radius:10px;padding:11px 20px;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;width:100%;justify-content:center;transition:box-shadow .2s}
+.google-btn:hover{box-shadow:0 4px 20px rgba(255,255,255,.15)}
+
+/* Branch tab */
+.branch-tab{padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;transition:all .2s;color:#64748B;border:1px solid transparent}
+.branch-tab.sel{background:rgba(124,58,237,.15);color:#A78BFA;border-color:rgba(124,58,237,.3)}
+.branch-tab:hover:not(.sel){background:rgba(255,255,255,.05);color:#94A3B8}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ LOGIN PAGE ═══════════════════════ -->
+<div id="login-pg">
+  <!-- Animated blobs -->
+  <div style="position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(124,58,237,.15),transparent 70%);top:-100px;left:-100px;filter:blur(40px)"></div>
+  <div style="position:absolute;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.1),transparent 70%);bottom:-50px;right:-50px;filter:blur(40px)"></div>
+
+  <div style="width:420px;padding:40px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:24px;backdrop-filter:blur(20px);position:relative">
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:linear-gradient(135deg,#7C3AED,#22D3EE);border-radius:16px;margin-bottom:14px;font-size:28px;box-shadow:0 0 32px rgba(124,58,237,.5)">⚡</div>
+      <div style="font-size:24px;font-weight:900;letter-spacing:-.04em" class="grad-text">EDGE GYM</div>
+      <div style="color:#475569;font-size:13px;margin-top:4px">Control Panel · v1.0</div>
+    </div>
+
+    <!-- Google btn -->
+    <button class="google-btn" onclick="doLogin()">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Continue with Google
+    </button>
+
+    <div style="display:flex;align-items:center;gap:12px;margin:20px 0">
+      <div style="flex:1;height:1px;background:rgba(255,255,255,.08)"></div>
+      <span style="font-size:12px;color:#475569">or</span>
+      <div style="flex:1;height:1px;background:rgba(255,255,255,.08)"></div>
+    </div>
+
+    <!-- Email/Pass -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <input class="inp" style="width:100%" type="email" placeholder="admin@edgegym.in" value="rajesh@powerhub.in">
+      <input class="inp" style="width:100%" type="password" placeholder="Password" value="••••••••">
+    </div>
+
+    <button class="btn-primary" style="width:100%;margin-top:18px;font-size:15px;padding:13px" onclick="doLogin()">Sign In to Control Panel</button>
+
+    <div style="text-align:center;margin-top:20px;font-size:12px;color:#475569">
+      Secured by EDGE · <span style="color:#7C3AED">Privacy Policy</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ APP ═══════════════════════ -->
+<div id="app" style="display:none">
+
+<!-- SIDEBAR -->
+<aside id="sidebar">
+  <!-- Logo -->
+  <div style="padding:20px 16px 14px;border-bottom:1px solid rgba(255,255,255,.06)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:34px;height:34px;background:linear-gradient(135deg,#7C3AED,#22D3EE);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 0 16px rgba(124,58,237,.4)">⚡</div>
+      <div>
+        <div style="font-size:15px;font-weight:800;letter-spacing:-.03em" class="grad-text">EDGE GYM</div>
+        <div style="font-size:10px;color:#475569;font-weight:500">CONTROL PANEL</div>
+      </div>
+    </div>
+    <!-- Branch selector -->
+    <div style="margin-top:14px">
+      <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.06em;margin-bottom:6px">BRANCH</div>
+      <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:9px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:#E2E8F0">PowerHub Koramangala</div>
+          <div style="font-size:10px;color:#475569">Branch 1 · Active</div>
+        </div>
+        <svg width="12" height="12" fill="none" stroke="#475569" stroke-width="2" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav style="flex:1;overflow-y:auto;padding:10px 0">
+    <div class="sec-label" style="padding:8px 18px 2px">MAIN</div>
+    <div class="nav-link active" onclick="goPage('dashboard',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-link" onclick="goPage('members',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+      Members
+      <span style="margin-left:auto;background:rgba(124,58,237,.2);color:#A78BFA;font-size:10px;font-weight:700;padding:2px 7px;border-radius:100px">847</span>
+    </div>
+    <div class="nav-link" onclick="goPage('access',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Access Monitor
+      <span style="margin-left:auto" class="ldot blink"></span>
+    </div>
+    <div class="nav-link" onclick="goPage('fees',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>
+      Fees & Billing
+    </div>
+
+    <div class="sec-label" style="padding:14px 18px 2px">OPERATIONS</div>
+    <div class="nav-link" onclick="goPage('staff',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>
+      Staff
+    </div>
+    <div class="nav-link" onclick="goPage('products',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      Products
+      <span style="margin-left:auto;background:rgba(245,158,11,.15);color:#FBBF24;font-size:10px;font-weight:700;padding:2px 7px;border-radius:100px">2 low</span>
+    </div>
+    <div class="nav-link" onclick="goPage('devices',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2"/><path d="M7 10h1M16 10h1"/></svg>
+      Access Devices
+      <span style="margin-left:auto;background:rgba(248,113,113,.15);color:#F87171;font-size:10px;font-weight:700;padding:2px 7px;border-radius:100px">2 offline</span>
+    </div>
+    <div class="nav-link" onclick="goPage('reports',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      Reports
+    </div>
+
+    <div class="sec-label" style="padding:14px 18px 2px">SYSTEM</div>
+    <div class="nav-link" onclick="goPage('settings',this)">
+      <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+  </nav>
+
+  <!-- User profile -->
+  <div style="padding:14px;border-top:1px solid rgba(255,255,255,.06)">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:rgba(255,255,255,.04);border-radius:12px;cursor:pointer">
+      <div class="av av-purple" style="width:34px;height:34px">RK</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:#E2E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Rajesh Kumar</div>
+        <div style="font-size:11px;color:#475569">Owner · All Branches</div>
+      </div>
+      <svg width="14" height="14" fill="none" stroke="#475569" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN WRAPPER -->
+<div id="main-wrap">
+  <!-- HEADER -->
+  <div id="hdr">
+    <div style="flex:1">
+      <div id="pg-title" style="font-size:18px;font-weight:800;letter-spacing:-.03em;color:#F1F5F9">Dashboard</div>
+      <div style="font-size:12px;color:#475569">Wednesday, 7 May 2026</div>
+    </div>
+
+    <!-- Search -->
+    <div style="position:relative">
+      <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input class="inp" style="padding-left:36px;width:220px;font-size:13px" placeholder="Search members, ID...">
+    </div>
+
+    <!-- Notifications -->
+    <div style="position:relative">
+      <button class="btn-ghost" style="padding:8px">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      </button>
+      <div class="ndot"></div>
+    </div>
+
+    <!-- Branch tabs -->
+    <div style="display:flex;gap:4px;background:rgba(255,255,255,.04);padding:4px;border-radius:10px;border:1px solid rgba(255,255,255,.08)">
+      <div class="branch-tab sel">Koramangala</div>
+      <div class="branch-tab">Indiranagar</div>
+      <div class="branch-tab">HSR Layout</div>
+    </div>
+  </div>
+
+  <!-- CONTENT AREA -->
+  <div id="content">
+
+    <!-- ═══ PAGE: DASHBOARD ═══ -->
+    <div id="page-dashboard" class="page active">
+      <!-- Welcome -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+        <div>
+          <div style="font-size:22px;font-weight:800;letter-spacing:-.04em">Good Morning, Rajesh 👋</div>
+          <div style="font-size:13px;color:#64748B;margin-top:2px">Here's what's happening at PowerHub today</div>
+        </div>
+        <button class="btn-primary" style="display:flex;align-items:center;gap:8px;font-size:13px" onclick="showModal()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Member
+        </button>
+      </div>
+
+      <!-- KPI Row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px">
+        <!-- Collection -->
+        <div class="kpi-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#475569;text-transform:uppercase">Today's Collection</div>
+            <div style="width:36px;height:36px;background:rgba(16,185,129,.12);border-radius:10px;display:flex;align-items:center;justify-content:center">
+              <svg width="16" height="16" fill="none" stroke="#10B981" stroke-width="2" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+          </div>
+          <div class="stat-num" style="color:#F1F5F9">₹48,500</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+            <span class="up">▲ 12%</span>
+            <span style="font-size:12px;color:#475569">vs yesterday</span>
+          </div>
+          <div class="prog" style="margin-top:12px"><div class="prog-fill" style="width:72%"></div></div>
+          <div style="font-size:11px;color:#475569;margin-top:4px">Target: ₹67,000</div>
+        </div>
+
+        <!-- Members -->
+        <div class="kpi-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#475569;text-transform:uppercase">Active Members</div>
+            <div style="width:36px;height:36px;background:rgba(124,58,237,.12);border-radius:10px;display:flex;align-items:center;justify-content:center">
+              <svg width="16" height="16" fill="none" stroke="#A78BFA" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+          </div>
+          <div class="stat-num" style="color:#F1F5F9">847</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+            <span class="up">▲ 5</span>
+            <span style="font-size:12px;color:#475569">new today</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <span style="font-size:11px;color:#34D399">720 active</span>
+            <span style="font-size:11px;color:#475569">·</span>
+            <span style="font-size:11px;color:#FBBF24">127 expiring</span>
+          </div>
+        </div>
+
+        <!-- Attendance -->
+        <div class="kpi-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#475569;text-transform:uppercase">Today's Attendance</div>
+            <div style="width:36px;height:36px;background:rgba(34,211,238,.12);border-radius:10px;display:flex;align-items:center;justify-content:center">
+              <svg width="16" height="16" fill="none" stroke="#22D3EE" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+          </div>
+          <div class="stat-num" style="color:#F1F5F9">312</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+            <span class="up">▲ 8%</span>
+            <span style="font-size:12px;color:#475569">vs yesterday</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
+            <div class="ldot blink"></div>
+            <span style="font-size:11px;color:#475569">42 inside right now</span>
+          </div>
+        </div>
+
+        <!-- Expiring -->
+        <div class="kpi-card" style="border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.04)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;color:#475569;text-transform:uppercase">Expiring This Week</div>
+            <div style="width:36px;height:36px;background:rgba(245,158,11,.12);border-radius:10px;display:flex;align-items:center;justify-content:center">
+              <svg width="16" height="16" fill="none" stroke="#FBBF24" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+          </div>
+          <div class="stat-num" style="color:#FBBF24">23</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px">
+            <span class="dn">▲ 7</span>
+            <span style="font-size:12px;color:#475569">needs renewal</span>
+          </div>
+          <button class="btn-outline" style="font-size:11px;padding:5px 12px;margin-top:12px;color:#FBBF24;border-color:rgba(245,158,11,.3)">Send Reminders</button>
+        </div>
+      </div>
+
+      <!-- Charts + Live Feed Row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 340px;gap:16px;margin-bottom:24px">
+        <!-- Revenue Chart -->
+        <div class="kpi-card" style="grid-column:span 1">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div>
+              <div style="font-size:14px;font-weight:700">Revenue — Last 7 Days</div>
+              <div style="font-size:12px;color:#475569">All branches combined</div>
+            </div>
+            <button class="btn-outline" style="font-size:11px;padding:4px 10px">Weekly ▾</button>
+          </div>
+          <canvas id="revenueChart" height="160"></canvas>
+        </div>
+
+        <!-- Members Donut -->
+        <div class="kpi-card" style="grid-column:span 1">
+          <div style="margin-bottom:16px">
+            <div style="font-size:14px;font-weight:700">Membership Breakdown</div>
+            <div style="font-size:12px;color:#475569">By plan type</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:20px">
+            <canvas id="memberChart" width="130" height="130"></canvas>
+            <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:3px;background:#7C3AED"></div><span style="font-size:12px;color:#94A3B8">Premium</span></div>
+                <span style="font-size:12px;font-weight:700">298</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:3px;background:#22D3EE"></div><span style="font-size:12px;color:#94A3B8">Basic</span></div>
+                <span style="font-size:12px;font-weight:700">211</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:3px;background:#10B981"></div><span style="font-size:12px;color:#94A3B8">Yearly</span></div>
+                <span style="font-size:12px;font-weight:700">169</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:3px;background:#F59E0B"></div><span style="font-size:12px;color:#94A3B8">PT Package</span></div>
+                <span style="font-size:12px;font-weight:700">102</span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between">
+                <div style="display:flex;align-items:center;gap:8px"><div style="width:10px;height:10px;border-radius:3px;background:#6366F1"></div><span style="font-size:12px;color:#94A3B8">Corporate</span></div>
+                <span style="font-size:12px;font-weight:700">67</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Feed -->
+        <div class="kpi-card" style="grid-column:span 1">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+            <div class="ldot blink"></div>
+            <div style="font-size:14px;font-weight:700">Live Access Feed</div>
+          </div>
+          <div id="live-feed-mini" style="display:flex;flex-direction:column;gap:8px;max-height:230px;overflow:hidden"></div>
+        </div>
+      </div>
+
+      <!-- Branch Performance + Renewals -->
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:16px">
+        <!-- Branch Cards -->
+        <div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:14px">Branch Performance</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <!-- Branch 1 -->
+            <div class="kpi-card hover-lift" style="display:flex;align-items:center;gap:14px;padding:16px">
+              <div style="width:44px;height:44px;background:linear-gradient(135deg,rgba(124,58,237,.3),rgba(34,211,238,.2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">🏋️</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700">PowerHub Koramangala</div>
+                <div style="font-size:12px;color:#475569;margin-top:2px">Branch 1 · 8 Staff · 312 members</div>
+                <div class="prog" style="margin-top:8px"><div class="prog-fill" style="width:78%"></div></div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:800;color:#34D399">₹18,200</div>
+                <div style="font-size:11px;color:#475569">145 entries</div>
+              </div>
+            </div>
+            <!-- Branch 2 -->
+            <div class="kpi-card hover-lift" style="display:flex;align-items:center;gap:14px;padding:16px">
+              <div style="width:44px;height:44px;background:linear-gradient(135deg,rgba(34,211,238,.3),rgba(16,185,129,.2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">💪</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700">PowerHub Indiranagar</div>
+                <div style="font-size:12px;color:#475569;margin-top:2px">Branch 2 · 6 Staff · 298 members</div>
+                <div class="prog" style="margin-top:8px"><div class="prog-fill" style="width:58%"></div></div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:800;color:#22D3EE">₹14,800</div>
+                <div style="font-size:11px;color:#475569">98 entries</div>
+              </div>
+            </div>
+            <!-- Branch 3 -->
+            <div class="kpi-card hover-lift" style="display:flex;align-items:center;gap:14px;padding:16px">
+              <div style="width:44px;height:44px;background:linear-gradient(135deg,rgba(245,158,11,.3),rgba(239,68,68,.2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px">⚡</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:700">PowerHub HSR Layout</div>
+                <div style="font-size:12px;color:#475569;margin-top:2px">Branch 3 · 5 Staff · 237 members</div>
+                <div class="prog" style="margin-top:8px"><div class="prog-fill" style="width:65%"></div></div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:16px;font-weight:800;color:#FBBF24">₹15,500</div>
+                <div style="font-size:11px;color:#475569">69 entries</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Upcoming Renewals -->
+        <div class="kpi-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:14px;font-weight:700">Upcoming Renewals</div>
+            <span class="badge badge-due">23 pending</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="trow" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="av av-purple">RS</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">Rahul Sharma</div>
+                <div style="font-size:11px;color:#F87171">Expires in 3 days</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700">₹3,999</div>
+                <div style="font-size:10px;color:#475569">Premium</div>
+              </div>
+            </div>
+            <div class="trow" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="av av-cyan">PN</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">Priya Nair</div>
+                <div style="font-size:11px;color:#FBBF24">Expires in 5 days</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700">₹1,299</div>
+                <div style="font-size:10px;color:#475569">Basic</div>
+              </div>
+            </div>
+            <div class="trow" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="av av-green">AM</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">Akash Mehta</div>
+                <div style="font-size:11px;color:#FBBF24">Expires in 7 days</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700">₹8,000</div>
+                <div style="font-size:10px;color:#475569">PT Package</div>
+              </div>
+            </div>
+            <div class="trow" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="av av-amber">KP</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">Kavya Pillai</div>
+                <div style="font-size:11px;color:#94A3B8">Expires in 10 days</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700">₹1,299</div>
+                <div style="font-size:10px;color:#475569">Monthly</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+              <div class="av av-indigo">VR</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">Vikram Reddy</div>
+                <div style="font-size:11px;color:#94A3B8">Expires in 12 days</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:13px;font-weight:700">₹1,299</div>
+                <div style="font-size:10px;color:#475569">Basic</div>
+              </div>
+            </div>
+          </div>
+          <button class="btn-primary" style="width:100%;margin-top:16px;font-size:12px;padding:9px">Send All Renewal Reminders via FCM</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: MEMBERS ═══ -->
+    <div id="page-members" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div class="sec-title">Members</div>
+          <div style="font-size:13px;color:#64748B">847 total · 720 active · 47 with dues</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-outline" style="display:flex;align-items:center;gap:6px">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="21 15 21 21 15 21"/><line x1="21" y1="3" x2="14" y2="10"/><polyline points="3 9 3 3 9 3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            Export
+          </button>
+          <button class="btn-primary" style="display:flex;align-items:center;gap:6px;font-size:13px" onclick="showModal()">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Member
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap">
+        <div style="position:relative;flex:1;max-width:320px">
+          <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input class="inp" style="padding-left:36px;width:100%;font-size:13px" placeholder="Search by name, ID, phone...">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="chip on" onclick="filterChip(this,'all')">All</button>
+          <button class="chip" onclick="filterChip(this,'active')">Active</button>
+          <button class="chip" onclick="filterChip(this,'expired')">Expired</button>
+          <button class="chip" onclick="filterChip(this,'frozen')">Frozen</button>
+          <button class="chip" onclick="filterChip(this,'due')">Due</button>
+        </div>
+        <button class="btn-outline" style="font-size:12px;padding:6px 12px">Plan ▾</button>
+        <button class="btn-outline" style="font-size:12px;padding:6px 12px">Branch ▾</button>
+      </div>
+
+      <!-- Members Table -->
+      <div class="kpi-card" style="padding:0;overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center">
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:40px">#</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;flex:2">Member</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:100px">Plan</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:90px">Status</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:110px">Valid Until</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:80px">Branch</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:80px;text-align:right">Actions</div>
+        </div>
+        <div id="members-table-body"></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: ACCESS MONITOR ═══ -->
+    <div id="page-access" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="sec-title">Access Monitor</div>
+            <div style="display:flex;align-items:center;gap:6px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);padding:4px 12px;border-radius:100px">
+              <div class="ldot blink"></div>
+              <span style="font-size:12px;color:#34D399;font-weight:600">LIVE</span>
+            </div>
+          </div>
+          <div style="font-size:13px;color:#64748B">Real-time entry/exit monitoring across all zones</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <div class="kpi-card" style="padding:10px 16px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#34D399">312</div>
+            <div style="font-size:10px;color:#475569">Allowed Today</div>
+          </div>
+          <div class="kpi-card" style="padding:10px 16px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#F87171">8</div>
+            <div style="font-size:10px;color:#475569">Denied Today</div>
+          </div>
+          <div class="kpi-card" style="padding:10px 16px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#22D3EE">42</div>
+            <div style="font-size:10px;color:#475569">Inside Now</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone Grid -->
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:22px">
+        <div class="zone-ok" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">🚪</div>
+          <div style="font-size:12px;font-weight:700;color:#34D399">Main Entry</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">42 inside</div>
+        </div>
+        <div class="zone-ok" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">🏃</div>
+          <div style="font-size:12px;font-weight:700;color:#34D399">Cardio Area</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">18 inside</div>
+        </div>
+        <div class="zone-ok" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">🏋️</div>
+          <div style="font-size:12px;font-weight:700;color:#34D399">Weight Area</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">15 inside</div>
+        </div>
+        <div class="zone-ok" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">🧘</div>
+          <div style="font-size:12px;font-weight:700;color:#34D399">PT Room</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">4 inside</div>
+        </div>
+        <div class="zone-ok" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">♨️</div>
+          <div style="font-size:12px;font-weight:700;color:#34D399">Steam Room</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">3 inside</div>
+        </div>
+        <div class="zone-deny" style="border-radius:14px;padding:14px;cursor:pointer">
+          <div style="font-size:20px;margin-bottom:8px">🔒</div>
+          <div style="font-size:12px;font-weight:700;color:#F87171">Staff Room</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px">Staff only</div>
+        </div>
+      </div>
+
+      <!-- Live Events Table -->
+      <div class="kpi-card" style="padding:0;overflow:hidden">
+        <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="ldot blink"></div>
+            <span style="font-size:14px;font-weight:700">Live Events</span>
+          </div>
+          <button class="btn-outline" style="font-size:11px;padding:4px 10px">Pause Feed</button>
+        </div>
+        <div style="padding:8px 0;max-height:420px;overflow-y:auto" id="access-feed"></div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: FEES ═══ -->
+    <div id="page-fees" class="page">
+      <div style="margin-bottom:20px">
+        <div class="sec-title">Fees & Billing</div>
+        <div style="font-size:13px;color:#64748B">Collection overview · Due tracking · Payment history</div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px">
+        <div class="kpi-card">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Today's Collection</div>
+          <div class="stat-num" style="color:#34D399">₹48,500</div>
+          <div style="font-size:12px;color:#475569;margin-top:6px">23 transactions</div>
+        </div>
+        <div class="kpi-card">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Monthly Revenue</div>
+          <div class="stat-num">₹3,84,200</div>
+          <div style="font-size:12px;color:#34D399;margin-top:6px">▲ 18% vs last month</div>
+        </div>
+        <div class="kpi-card" style="border-color:rgba(248,113,113,.2)">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Total Dues</div>
+          <div class="stat-num" style="color:#F87171">₹1,23,400</div>
+          <div style="font-size:12px;color:#475569;margin-top:6px">47 members pending</div>
+        </div>
+        <div class="kpi-card">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Payment Modes</div>
+          <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#94A3B8">UPI</span><span style="font-weight:700">₹28,500 (59%)</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#94A3B8">Cash</span><span style="font-weight:700">₹14,200 (29%)</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span style="color:#94A3B8">Card</span><span style="font-weight:700">₹5,800 (12%)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Due Members -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="kpi-card" style="padding:0;overflow:hidden">
+          <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:14px;font-weight:700">Due Payments</span>
+            <span class="badge badge-expired">47 pending</span>
+          </div>
+          <div>
+            ${[
+              ['Rahul Sharma','MEM001','Premium','₹3,999','3 days overdue','av-purple','RS'],
+              ['Kavya Pillai','MEM008','Monthly','₹1,299','7 days overdue','av-amber','KP'],
+              ['Divya Rao','MEM012','Basic','₹1,299','15 days overdue','av-red','DR'],
+              ['Mohan Das','MEM019','Basic','₹1,299','22 days overdue','av-indigo','MD'],
+              ['Suresh Babu','MEM024','Premium','₹3,999','1 month overdue','av-cyan','SB'],
+            ].map(([name,id,plan,amt,over,av,init])=>`
+            <div class="trow" style="padding:12px 20px;display:flex;align-items:center;gap:10px">
+              <div class="av ${av}">${init}</div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">${name}</div>
+                <div style="font-size:11px;color:#475569">${id} · ${plan}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:14px;font-weight:700;color:#F87171">${amt}</div>
+                <div style="font-size:11px;color:#64748B">${over}</div>
+              </div>
+              <button class="btn-outline" style="font-size:11px;padding:4px 10px">Remind</button>
+            </div>`).join('')}
+          </div>
+        </div>
+
+        <!-- Recent Transactions -->
+        <div class="kpi-card" style="padding:0;overflow:hidden">
+          <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06)">
+            <span style="font-size:14px;font-weight:700">Recent Transactions</span>
+          </div>
+          <div>
+            ${[
+              ['Ananya Singh','Yearly Renewal','UPI','₹9,999','34D399','12:42'],
+              ['Rohan Kapoor','Corp. Plan','Card','₹12,000','34D399','12:38'],
+              ['Arjun Nair','Monthly','Cash','₹1,299','34D399','12:15'],
+              ['Pooja Mehta','Supplement Sale','UPI','₹2,499','34D399','11:58'],
+              ['Kiran Kumar','PT Package','UPI','₹8,000','34D399','11:44'],
+              ['Sunita Reddy','Monthly Renewal','Cash','₹1,299','34D399','11:30'],
+            ].map(([name,type,mode,amt,c,time])=>`
+            <div class="trow" style="padding:12px 20px;display:flex;align-items:center;gap:10px">
+              <div style="width:36px;height:36px;background:rgba(16,185,129,.1);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <svg width="14" height="14" fill="none" stroke="#34D399" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:600">${name}</div>
+                <div style="font-size:11px;color:#475569">${type} · ${mode}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:14px;font-weight:700;color:#34D399">+${amt}</div>
+                <div style="font-size:11px;color:#475569">${time} today</div>
+              </div>
+            </div>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: STAFF ═══ -->
+    <div id="page-staff" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div class="sec-title">Staff Management</div>
+          <div style="font-size:13px;color:#64748B">24 staff across 3 branches · 19 present today</div>
+        </div>
+        <button class="btn-primary" style="font-size:13px">+ Add Staff</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px">
+        <div class="kpi-card" style="text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#34D399">19</div>
+          <div style="font-size:12px;color:#475569">Present Today</div>
+        </div>
+        <div class="kpi-card" style="text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#F87171">5</div>
+          <div style="font-size:12px;color:#475569">Absent</div>
+        </div>
+        <div class="kpi-card" style="text-align:center">
+          <div style="font-size:28px;font-weight:800;color:#FBBF24">3</div>
+          <div style="font-size:12px;color:#475569">On Leave</div>
+        </div>
+      </div>
+
+      <div class="kpi-card" style="padding:0;overflow:hidden">
+        <div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:20px">
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;flex:2">Staff Member</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:100px">Role</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:100px">Shift</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:80px">Status</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:80px">Branch</div>
+          <div style="font-size:13px;font-weight:600;color:#94A3B8;width:70px;text-align:right">Actions</div>
+        </div>
+        ${[
+          ['Deepak Verma','DV','Manager','6AM – 2PM','present','Koramangala','av-purple'],
+          ['Sunita Rao','SR','Receptionist','6AM – 2PM','present','Koramangala','av-cyan'],
+          ['Raj Malhotra','RM','Trainer','6AM – 12PM','present','Koramangala','av-green'],
+          ['Meera Pillai','MP','Trainer','4PM – 10PM','shift-later','Koramangala','av-pink'],
+          ['Arun Sharma','AS','Cleaner','8AM – 4PM','absent','Koramangala','av-red'],
+          ['Pradeep Kumar','PK','Manager','6AM – 2PM','present','Indiranagar','av-purple'],
+          ['Lakshmi Devi','LD','Receptionist','6AM – 2PM','present','Indiranagar','av-amber'],
+          ['Sanjay Rathore','SR','Trainer','7AM – 1PM','present','Indiranagar','av-green'],
+        ].map(([name,init,role,shift,status,branch,av])=>{
+          const roleClass = role==='Manager'?'badge-role-manager':role==='Trainer'?'badge-role-trainer':role==='Receptionist'?'badge-role-reception':'badge-role-cleaner';
+          const statusBadge = status==='present'?'<span class="badge badge-active">Present</span>':status==='absent'?'<span class="badge badge-expired">Absent</span>':'<span class="badge badge-frozen">Evening</span>';
+          return `<div class="trow" style="padding:12px 20px;display:flex;align-items:center;gap:20px">
+            <div style="display:flex;align-items:center;gap:10px;flex:2">
+              <div class="av ${av}">${init}</div>
+              <div><div style="font-size:13px;font-weight:600">${name}</div><div style="font-size:11px;color:#475569">STF · ${init}01</div></div>
+            </div>
+            <div style="width:100px"><span class="badge ${roleClass}">${role}</span></div>
+            <div style="width:100px;font-size:12px;color:#94A3B8">${shift}</div>
+            <div style="width:80px">${statusBadge}</div>
+            <div style="width:80px;font-size:12px;color:#64748B">${branch}</div>
+            <div style="width:70px;text-align:right"><button class="btn-ghost" style="font-size:11px;padding:4px 8px;border:1px solid rgba(255,255,255,.08);border-radius:8px;color:#94A3B8">Edit</button></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: PRODUCTS ═══ -->
+    <div id="page-products" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div class="sec-title">Products & Inventory</div>
+          <div style="font-size:13px;color:#64748B">Stock management · Sales tracking · Low stock alerts</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-outline" style="font-size:13px">+ Purchase Entry</button>
+          <button class="btn-primary" style="font-size:13px">+ New Sale</button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px">
+        <div class="kpi-card"><div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px">Today's Sales</div><div class="stat-num" style="color:#34D399">₹8,240</div><div style="font-size:12px;color:#475569;margin-top:4px">14 items sold</div></div>
+        <div class="kpi-card"><div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px">Total Products</div><div class="stat-num">38</div><div style="font-size:12px;color:#475569;margin-top:4px">across 4 categories</div></div>
+        <div class="kpi-card" style="border-color:rgba(245,158,11,.2)"><div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px">Low Stock</div><div class="stat-num" style="color:#FBBF24">3</div><div style="font-size:12px;color:#475569;margin-top:4px">items need reorder</div></div>
+        <div class="kpi-card"><div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:8px">Stock Value</div><div class="stat-num">₹2.4L</div><div style="font-size:12px;color:#475569;margin-top:4px">at cost price</div></div>
+      </div>
+
+      <!-- Low Stock Alert -->
+      <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:14px;padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px">
+        <span style="font-size:20px">⚠️</span>
+        <div><div style="font-size:13px;font-weight:600;color:#FBBF24">Low Stock Alert</div><div style="font-size:12px;color:#94A3B8">Creatine 300g (3 left), BCAA 400g (2 left), Protein Bar (4 left) are below reorder level</div></div>
+        <button class="btn-outline" style="margin-left:auto;font-size:12px;color:#FBBF24;border-color:rgba(245,158,11,.3)">Order Now</button>
+      </div>
+
+      <!-- Product Grid -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        ${[
+          ['Whey Protein 1kg','Supplement','₹2,499','15','5','stock-ok'],
+          ['Creatine 300g','Supplement','₹899','3','5','stock-low'],
+          ['Gym Gloves (pair)','Accessory','₹499','22','10','stock-ok'],
+          ['Protein Bar (box 12)','Supplement','₹1,299','4','10','stock-warn'],
+          ['Shaker Bottle 700ml','Accessory','₹349','18','8','stock-ok'],
+          ['BCAA 400g','Supplement','₹1,599','2','5','stock-low'],
+          ['Pre-workout 300g','Supplement','₹2,199','9','5','stock-ok'],
+          ['Gym Belt Leather','Accessory','₹1,899','6','3','stock-ok'],
+          ['Resistance Bands Set','Equipment','₹799','11','5','stock-ok'],
+        ].map(([name,cat,price,stock,min,sc])=>`
+        <div class="kpi-card hover-lift" style="padding:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="background:rgba(255,255,255,.06);padding:4px 10px;border-radius:100px;font-size:11px;color:#94A3B8">${cat}</div>
+            ${sc==='stock-low'?'<span style="background:rgba(248,113,113,.12);color:#F87171;font-size:10px;font-weight:700;padding:3px 8px;border-radius:100px;border:1px solid rgba(248,113,113,.25)">LOW STOCK</span>':sc==='stock-warn'?'<span style="background:rgba(245,158,11,.12);color:#FBBF24;font-size:10px;font-weight:700;padding:3px 8px;border-radius:100px;border:1px solid rgba(245,158,11,.25)">REORDER</span>':'<span style="background:rgba(16,185,129,.12);color:#34D399;font-size:10px;font-weight:700;padding:3px 8px;border-radius:100px;border:1px solid rgba(16,185,129,.25)">IN STOCK</span>'}
+          </div>
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px">${name}</div>
+          <div style="font-size:20px;font-weight:800;color:#A78BFA;margin-bottom:10px">${price}</div>
+          <div class="prog"><div class="prog-fill" style="width:${Math.min(100,Math.round(parseInt(stock)/parseInt(min)*20))}%;background:${sc==='stock-low'?'#F87171':sc==='stock-warn'?'#FBBF24':'linear-gradient(90deg,#7C3AED,#22D3EE)'}"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:#475569">
+            <span>Stock: <span class="${sc}" style="font-weight:700">${stock} units</span></span>
+            <span>Min: ${min}</span>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <button class="btn-outline" style="flex:1;font-size:11px;padding:5px">Edit</button>
+            <button class="btn-primary" style="flex:1;font-size:11px;padding:5px">Sell</button>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: REPORTS ═══ -->
+    <div id="page-reports" class="page">
+      <div style="margin-bottom:20px">
+        <div class="sec-title">Reports & Analytics</div>
+        <div style="font-size:13px;color:#64748B">Download, filter, and analyze business data</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+        ${[
+          ['💰','Daily Collection','Revenue by date, payment mode breakdown','Generate'],
+          ['📅','Monthly Revenue','Month-over-month growth analysis','Generate'],
+          ['⚠️','Due Fee Report','Members with pending payments','Generate'],
+          ['📊','Attendance Report','Member attendance patterns & peaks','Generate'],
+          ['🧑‍🤝‍🧑','Member Report','Active, expired, frozen, new joinings','Generate'],
+          ['🚫','Access Denied Log','Denied entries with reason codes','Generate'],
+          ['📦','Stock Report','Current inventory & movement','Generate'],
+          ['👥','Staff Report','Attendance, performance, commission','Generate'],
+          ['🏢','Branch Comparison','Cross-branch performance metrics','Generate'],
+        ].map(([icon,title,desc,btn])=>`
+        <div class="kpi-card hover-lift" style="padding:20px;cursor:pointer">
+          <div style="font-size:28px;margin-bottom:10px">${icon}</div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:6px">${title}</div>
+          <div style="font-size:12px;color:#64748B;margin-bottom:16px;line-height:1.5">${desc}</div>
+          <button class="btn-primary" style="font-size:12px;padding:8px 16px">${btn} →</button>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: SETTINGS ═══ -->
+    <div id="page-settings" class="page">
+      <div style="margin-bottom:20px"><div class="sec-title">Settings</div><div style="font-size:13px;color:#64748B">System configuration and preferences</div></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        ${[
+          ['🏢','Gym Profile','Name, address, logo, contact','Edit Profile'],
+          ['🔑','Access Policies','Zone rules, time windows, anti-passback','Configure'],
+          ['📱','FCM Notifications','Notification templates and campaigns','Manage'],
+          ['💳','Membership Plans','Plan types, pricing, duration','Edit Plans'],
+          ['🖥️','EDGE Devices','Register, monitor, and manage edge devices','Manage'],
+          ['👤','User Roles','Role permissions and access control','Configure'],
+        ].map(([icon,title,desc,btn])=>`
+        <div class="kpi-card hover-lift" style="display:flex;align-items:center;gap:16px;padding:18px">
+          <div style="width:48px;height:48px;background:rgba(124,58,237,.1);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">${icon}</div>
+          <div style="flex:1"><div style="font-size:15px;font-weight:700;margin-bottom:4px">${title}</div><div style="font-size:12px;color:#64748B">${desc}</div></div>
+          <button class="btn-outline" style="font-size:12px;flex-shrink:0">${btn} →</button>
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- ═══ PAGE: ACCESS DEVICES ═══ -->
+    <div id="page-devices" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div>
+          <div class="sec-title">Access &amp; Attendance Devices</div>
+          <div style="font-size:13px;color:#64748B">Register RFID readers, face machines, QR scanners — manage zones and sync health</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-outline" style="display:flex;align-items:center;gap:6px;font-size:13px" onclick="showToast('Pinging all devices…','#22D3EE')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+            Sync All
+          </button>
+          <button class="btn-primary" style="display:flex;align-items:center;gap:6px;font-size:13px" onclick="showDeviceModal()">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Register Device
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px">
+        <div class="kpi-card">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Total Devices</div>
+          <div class="stat-num">8</div>
+          <div style="font-size:12px;color:#475569;margin-top:6px">Across 3 branches</div>
+        </div>
+        <div class="kpi-card" style="border-color:rgba(16,185,129,.2)">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Online</div>
+          <div class="stat-num" style="color:#34D399">6</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px"><div class="ldot blink"></div><span style="font-size:12px;color:#475569">Heartbeat OK</span></div>
+        </div>
+        <div class="kpi-card" style="border-color:rgba(248,113,113,.2)">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Offline</div>
+          <div class="stat-num" style="color:#F87171">2</div>
+          <div style="font-size:12px;color:#F87171;margin-top:6px">Needs attention</div>
+        </div>
+        <div class="kpi-card" style="border-color:rgba(245,158,11,.2)">
+          <div style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">Sync Pending</div>
+          <div class="stat-num" style="color:#FBBF24">147</div>
+          <div style="font-size:12px;color:#475569;margin-top:6px">Events queued</div>
+        </div>
+      </div>
+
+      <!-- Offline alert banner -->
+      <div style="background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.2);border-radius:14px;padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:12px">
+        <div style="font-size:20px">🔴</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:700;color:#F87171">2 Devices Offline</div>
+          <div style="font-size:12px;color:#94A3B8">DEV-I02 (Indiranagar · Weight Area) and DEV-H02 (HSR · Cardio) are not responding. Last heartbeat &gt; 30 min ago.</div>
+        </div>
+        <button class="btn-outline" style="font-size:12px;color:#F87171;border-color:rgba(248,113,113,.3);flex-shrink:0">Diagnose</button>
+      </div>
+
+      <!-- Filter bar -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="position:relative">
+          <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <input class="inp" style="padding-left:34px;width:220px;font-size:13px" placeholder="Search device ID or name…">
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="chip on" onclick="filterDeviceChip(this,'all')">All Devices</button>
+          <button class="chip" onclick="filterDeviceChip(this,'online')">Online</button>
+          <button class="chip" onclick="filterDeviceChip(this,'offline')">Offline</button>
+          <button class="chip" onclick="filterDeviceChip(this,'pending')">Sync Pending</button>
+        </div>
+        <button class="btn-outline" style="font-size:12px;padding:6px 12px">Branch ▾</button>
+        <button class="btn-outline" style="font-size:12px;padding:6px 12px">Type ▾</button>
+      </div>
+
+      <!-- Device Cards Grid -->
+      <div id="devices-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px"></div>
+
+      <!-- Protocol Legend -->
+      <div style="margin-top:20px;padding:16px 20px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:14px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+        <div style="font-size:11px;font-weight:600;color:#475569;letter-spacing:.06em;text-transform:uppercase">Protocol Guide</div>
+        ${[
+          ['TCP/IP','Network-connected devices. Requires IP + port. Recommended for new installs.','#22D3EE'],
+          ['Wiegand','26/34-bit legacy hardware. Direct GPIO wiring to EDGE box.','#A78BFA'],
+          ['RS485','Serial bus for older biometric readers. Up to 255 devices on one bus.','#FBBF24'],
+        ].map(([p,d,c])=>`<div style="display:flex;align-items:center;gap:8px"><div style="padding:3px 10px;border-radius:100px;background:${c}20;border:1px solid ${c}40;color:${c};font-size:11px;font-weight:700">${p}</div><span style="font-size:12px;color:#64748B;max-width:200px">${d}</span></div>`).join('')}
+      </div>
+    </div>
+    <!-- /page-devices -->
+
+  </div><!-- /content -->
+</div><!-- /main-wrap -->
+</div><!-- /app -->
+
+<!-- ═══ REGISTER DEVICE MODAL ═══ -->
+<div id="device-modal" onclick="if(event.target===this)closeDeviceModal()" style="position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);z-index:300;display:none;align-items:center;justify-content:center">
+  <div class="modal-box" style="width:520px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:22px">
+      <div>
+        <div style="font-size:18px;font-weight:800">Register Access Device</div>
+        <div style="font-size:12px;color:#64748B;margin-top:2px">Add RFID reader, face machine, QR scanner or biometric unit</div>
+      </div>
+      <button class="btn-ghost" onclick="closeDeviceModal()">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Auto-generated IDs -->
+    <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:12px 16px;margin-bottom:18px;display:flex;gap:20px">
+      <div><div style="font-size:10px;color:#7C3AED;font-weight:600;letter-spacing:.06em;margin-bottom:3px">DEVICE ID (AUTO)</div><div style="font-size:13px;font-weight:700;font-family:monospace;color:#A78BFA">DEV-K05</div></div>
+      <div style="width:1px;background:rgba(124,58,237,.2)"></div>
+      <div><div style="font-size:10px;color:#7C3AED;font-weight:600;letter-spacing:.06em;margin-bottom:3px">SECRET KEY (AUTO)</div><div style="font-size:13px;font-weight:700;font-family:monospace;color:#A78BFA">sk_edge_••••••••••••</div></div>
+      <button class="btn-outline" style="margin-left:auto;font-size:11px;padding:4px 10px" onclick="showToast('Secret key copied!','#A78BFA')">Copy Key</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="grid-column:span 2">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Device Name *</div>
+        <input class="inp" style="width:100%" placeholder="e.g. Main Entry RFID Reader">
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Device Type *</div>
+        <select class="inp" style="width:100%">
+          <option>RFID Reader</option>
+          <option>Face Recognition Machine</option>
+          <option>QR Scanner</option>
+          <option>Card Reader (Mifare)</option>
+          <option>Biometric (Fingerprint)</option>
+          <option>Multi-modal (Face + Card)</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Protocol *</div>
+        <select class="inp" style="width:100%" onchange="toggleProtocolFields(this.value)">
+          <option value="tcp">TCP/IP</option>
+          <option value="wiegand">Wiegand (26/34-bit)</option>
+          <option value="rs485">RS485 Serial</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Branch *</div>
+        <select class="inp" style="width:100%">
+          <option>PowerHub Koramangala</option>
+          <option>PowerHub Indiranagar</option>
+          <option>PowerHub HSR Layout</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Zone / Door *</div>
+        <select class="inp" style="width:100%">
+          <option>Main Entry</option>
+          <option>Cardio Area</option>
+          <option>Weight Training Area</option>
+          <option>Personal Training Room</option>
+          <option>Steam / Bath Area</option>
+          <option>Staff Room</option>
+          <option>Store Room</option>
+        </select>
+      </div>
+
+      <!-- TCP/IP fields -->
+      <div id="field-ip">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Device IP Address *</div>
+        <input class="inp" style="width:100%" placeholder="192.168.1.100">
+      </div>
+      <div id="field-port">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Port</div>
+        <input class="inp" style="width:100%" placeholder="4370" value="4370">
+      </div>
+
+      <!-- RS485 fields (hidden by default) -->
+      <div id="field-serial" style="display:none">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Serial Port</div>
+        <input class="inp" style="width:100%" placeholder="/dev/ttyUSB0">
+      </div>
+      <div id="field-baud" style="display:none">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Baud Rate</div>
+        <select class="inp" style="width:100%"><option>9600</option><option>19200</option><option selected>115200</option></select>
+      </div>
+
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Door Relay Control</div>
+        <select class="inp" style="width:100%">
+          <option>Enabled (trigger on ALLOW)</option>
+          <option>Disabled (monitor only)</option>
+        </select>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Anti-Passback</div>
+        <select class="inp" style="width:100%">
+          <option>Disabled</option>
+          <option>Soft (log only)</option>
+          <option>Hard (deny re-entry)</option>
+        </select>
+      </div>
+
+      <div style="grid-column:span 2">
+        <div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Device Description / Location Notes</div>
+        <input class="inp" style="width:100%" placeholder="e.g. Left wall beside reception desk, controls main shutter">
+      </div>
+    </div>
+
+    <div style="margin-top:20px;display:flex;justify-content:space-between;align-items:center">
+      <button class="btn-outline" onclick="closeDeviceModal()">Cancel</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn-outline" style="color:#22D3EE;border-color:rgba(34,211,238,.3)" onclick="showToast('Test ping sent to 192.168.1.100…','#22D3EE')">
+          Test Connection
+        </button>
+        <button class="btn-primary" onclick="closeDeviceModal();addDevice()">
+          Register &amp; Link to EDGE
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ADD MEMBER MODAL ═══ -->
+<div id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <div style="font-size:18px;font-weight:800">Add New Member</div>
+      <button class="btn-ghost" onclick="closeModal()">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">First Name *</div><input class="inp" placeholder="Arjun" style="width:100%"></div>
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Last Name *</div><input class="inp" placeholder="Patel" style="width:100%"></div>
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Phone *</div><input class="inp" placeholder="9876543210" style="width:100%"></div>
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Email</div><input class="inp" placeholder="arjun@email.com" style="width:100%"></div>
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Membership Plan *</div>
+        <select class="inp" style="width:100%">
+          <option>Basic Monthly — ₹1,299</option>
+          <option>Premium Monthly — ₹3,999</option>
+          <option>Yearly — ₹9,999</option>
+          <option>PT Package — ₹8,000</option>
+          <option>Corporate — ₹12,000</option>
+        </select>
+      </div>
+      <div><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Start Date *</div><input class="inp" type="date" value="2026-05-07" style="width:100%"></div>
+      <div style="grid-column:span 2"><div style="font-size:12px;color:#64748B;margin-bottom:6px;font-weight:500">Emergency Contact</div><input class="inp" placeholder="Name · Phone number" style="width:100%"></div>
+    </div>
+    <div style="margin-top:20px;display:flex;justify-content:space-between;align-items:center">
+      <button class="btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="closeModal();showToast('Member added successfully! ID: MEM848','#34D399')">Create Member + Assign ID</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST ═══ -->
+<div id="toast">
+  <div class="toast-inner" id="toast-inner"></div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const MEMBERS = [
+  {id:'MEM001',name:'Rahul Sharma',init:'RS',av:'av-purple',plan:'Premium',status:'active',valid:'Jun 15, 2026',branch:'Koramangala',phone:'98765 43210'},
+  {id:'MEM002',name:'Priya Nair',init:'PN',av:'av-cyan',plan:'Basic',status:'active',valid:'May 20, 2026',branch:'Koramangala',phone:'98765 43211'},
+  {id:'MEM003',name:'Akash Mehta',init:'AM',av:'av-green',plan:'PT Package',status:'active',valid:'Jul 01, 2026',branch:'Indiranagar',phone:'98765 43212'},
+  {id:'MEM004',name:'Sneha Gupta',init:'SG',av:'av-cyan',plan:'Premium',status:'frozen',valid:'May 30, 2026',branch:'Koramangala',phone:'98765 43213'},
+  {id:'MEM005',name:'Vikram Reddy',init:'VR',av:'av-red',plan:'Basic',status:'expired',valid:'Apr 30, 2026',branch:'HSR Layout',phone:'98765 43214'},
+  {id:'MEM006',name:'Ananya Singh',init:'AS',av:'av-indigo',plan:'Yearly',status:'active',valid:'Jan 15, 2027',branch:'Indiranagar',phone:'98765 43215'},
+  {id:'MEM007',name:'Rohan Kapoor',init:'RK',av:'av-amber',plan:'Corporate',status:'active',valid:'Dec 31, 2026',branch:'Koramangala',phone:'98765 43216'},
+  {id:'MEM008',name:'Kavya Pillai',init:'KP',av:'av-amber',plan:'Monthly',status:'due',valid:'May 10, 2026',branch:'HSR Layout',phone:'98765 43217'},
+  {id:'MEM009',name:'Arjun Nair',init:'AN',av:'av-purple',plan:'Quarterly',status:'active',valid:'Jul 20, 2026',branch:'Koramangala',phone:'98765 43218'},
+  {id:'MEM010',name:'Pooja Mehta',init:'PM',av:'av-green',plan:'Premium',status:'active',valid:'Aug 05, 2026',branch:'Indiranagar',phone:'98765 43219'},
+  {id:'MEM011',name:'Kiran Kumar',init:'KK',av:'av-cyan',plan:'Yearly',status:'active',valid:'Nov 20, 2026',branch:'HSR Layout',phone:'98765 43220'},
+  {id:'MEM012',name:'Divya Rao',init:'DR',av:'av-red',plan:'Basic',status:'expired',valid:'Apr 15, 2026',branch:'Indiranagar',phone:'98765 43221'},
+];
+
+const ACCESS_EVENTS_POOL = [
+  {name:'Rahul Sharma',id:'MEM001',zone:'Main Entry',d:'ALLOW',av:'av-purple',init:'RS'},
+  {name:'Priya Nair',id:'MEM002',zone:'Weight Area',d:'ALLOW',av:'av-cyan',init:'PN'},
+  {name:'Akash Mehta',id:'MEM003',zone:'Main Entry',d:'ALLOW',av:'av-green',init:'AM'},
+  {name:'Ananya Singh',id:'MEM006',zone:'PT Room',d:'ALLOW',av:'av-indigo',init:'AS'},
+  {name:'Rohan Kapoor',id:'MEM007',zone:'Cardio Area',d:'ALLOW',av:'av-amber',init:'RK'},
+  {name:'Arjun Nair',id:'MEM009',zone:'Main Entry',d:'ALLOW',av:'av-purple',init:'AN'},
+  {name:'Pooja Mehta',id:'MEM010',zone:'Steam Room',d:'ALLOW',av:'av-green',init:'PM'},
+  {name:'Vikram Reddy',id:'MEM005',zone:'Main Entry',d:'DENY',reason:'MEMBER_EXPIRED',av:'av-red',init:'VR'},
+  {name:'Kavya Pillai',id:'MEM008',zone:'Main Entry',d:'DENY',reason:'PAYMENT_DUE',av:'av-amber',init:'KP'},
+  {name:'Unknown Card',id:'???',zone:'Staff Room',d:'DENY',reason:'UNKNOWN_IDENTITY',av:'av-red',init:'??'},
+];
+
+// ── DEVICE DATA ───────────────────────────────────────────────────────────────
+const DEVICES = [
+  {id:'DEV-K01',name:'Main Entry RFID Reader',type:'RFID Reader',typeIcon:'📡',branch:'Koramangala',zone:'Main Entry',protocol:'TCP/IP',ip:'192.168.1.100',port:'4370',status:'online',heartbeat:'2m ago',syncStatus:'synced',syncPending:0,relay:true,events:1842,addedOn:'Jan 12, 2026'},
+  {id:'DEV-K02',name:'Cardio Area QR Scanner',type:'QR Scanner',typeIcon:'📷',branch:'Koramangala',zone:'Cardio Area',protocol:'TCP/IP',ip:'192.168.1.101',port:'4370',status:'online',heartbeat:'2m ago',syncStatus:'pending',syncPending:47,relay:false,events:978,addedOn:'Jan 12, 2026'},
+  {id:'DEV-K03',name:'PT Room Face Machine',type:'Face Recognition',typeIcon:'🤖',branch:'Koramangala',zone:'PT Room',protocol:'TCP/IP',ip:'192.168.1.102',port:'8000',status:'online',heartbeat:'5m ago',syncStatus:'pending',syncPending:100,relay:true,events:412,addedOn:'Feb 03, 2026'},
+  {id:'DEV-K04',name:'Staff Room RFID',type:'RFID Reader',typeIcon:'📡',branch:'Koramangala',zone:'Staff Room',protocol:'Wiegand',ip:'—',port:'—',status:'online',heartbeat:'3m ago',syncStatus:'synced',syncPending:0,relay:true,events:3201,addedOn:'Jan 12, 2026'},
+  {id:'DEV-I01',name:'Main Entry RFID Reader',type:'RFID Reader',typeIcon:'📡',branch:'Indiranagar',zone:'Main Entry',protocol:'TCP/IP',ip:'192.168.2.100',port:'4370',status:'online',heartbeat:'1m ago',syncStatus:'synced',syncPending:0,relay:true,events:1540,addedOn:'Jan 28, 2026'},
+  {id:'DEV-I02',name:'Weight Area Card Reader',type:'Card Reader',typeIcon:'💳',branch:'Indiranagar',zone:'Weight Area',protocol:'RS485',ip:'—',port:'/dev/ttyUSB0',status:'offline',heartbeat:'48m ago',syncStatus:'error',syncPending:0,relay:false,events:690,addedOn:'Feb 14, 2026'},
+  {id:'DEV-H01',name:'Main Entry RFID Reader',type:'RFID Reader',typeIcon:'📡',branch:'HSR Layout',zone:'Main Entry',protocol:'TCP/IP',ip:'192.168.3.100',port:'4370',status:'online',heartbeat:'4m ago',syncStatus:'synced',syncPending:0,relay:true,events:1102,addedOn:'Mar 01, 2026'},
+  {id:'DEV-H02',name:'Cardio QR Scanner',type:'QR Scanner',typeIcon:'📷',branch:'HSR Layout',zone:'Cardio Area',protocol:'TCP/IP',ip:'192.168.3.101',port:'4370',status:'offline',heartbeat:'2h ago',syncStatus:'error',syncPending:0,relay:false,events:308,addedOn:'Mar 01, 2026'},
+];
+
+// ── NAVIGATION ────────────────────────────────────────────────────────────────
+function goPage(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  if (el) el.classList.add('active');
+  const titles = {dashboard:'Dashboard',members:'Members',access:'Access Monitor',fees:'Fees & Billing',staff:'Staff',products:'Products',devices:'Access Devices',reports:'Reports',settings:'Settings'};
+  document.getElementById('pg-title').textContent = titles[page] || page;
+  if (page === 'dashboard') initCharts();
+  if (page === 'members') renderMembers('all');
+  if (page === 'access') renderAccessFeed();
+  if (page === 'devices') renderDevices('all');
+}
+
+// ── LOGIN ────────────────────────────────────────────────────────────────────
+function doLogin() {
+  document.getElementById('login-pg').style.opacity = '0';
+  document.getElementById('login-pg').style.transition = 'opacity .4s';
+  setTimeout(() => {
+    document.getElementById('login-pg').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    initCharts();
+    startLiveMini();
+    renderAccessFeed();
+    showToast('Welcome back, Rajesh! 👋','#A78BFA');
+  }, 400);
+}
+
+// ── CHARTS ───────────────────────────────────────────────────────────────────
+let chartsInited = false;
+function initCharts() {
+  if (chartsInited) return;
+  chartsInited = true;
+
+  // Revenue Bar Chart
+  const rc = document.getElementById('revenueChart');
+  if (rc) new Chart(rc, {
+    type: 'bar',
+    data: {
+      labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      datasets: [{
+        label: 'Revenue (₹)',
+        data: [42000, 38500, 48500, 44500, 51200, 62000, 35000],
+        backgroundColor: (ctx) => {
+          const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 200);
+          g.addColorStop(0,'rgba(124,58,237,0.8)');
+          g.addColorStop(1,'rgba(34,211,238,0.3)');
+          return g;
+        },
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: {display:false}, tooltip: {callbacks:{label:ctx=>'₹'+ctx.raw.toLocaleString('en-IN')}} },
+      scales: {
+        x: { grid:{display:false}, ticks:{color:'#475569',font:{size:11}} },
+        y: { grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#475569',font:{size:11},callback:v=>'₹'+v/1000+'k'}, border:{display:false} }
+      }
+    }
+  });
+
+  // Member Donut
+  const mc = document.getElementById('memberChart');
+  if (mc) new Chart(mc, {
+    type: 'doughnut',
+    data: {
+      labels: ['Premium','Basic','Yearly','PT Package','Corporate'],
+      datasets: [{
+        data: [298, 211, 169, 102, 67],
+        backgroundColor: ['#7C3AED','#22D3EE','#10B981','#F59E0B','#6366F1'],
+        borderWidth: 0,
+        hoverOffset: 6,
+      }]
+    },
+    options: {
+      responsive: false, cutout: '72%',
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>ctx.label+': '+ctx.raw}} }
+    }
+  });
+}
+
+// ── LIVE MINI FEED (dashboard) ────────────────────────────────────────────────
+let miniInterval;
+function startLiveMini() {
+  const feed = document.getElementById('live-feed-mini');
+  if (!feed) return;
+  function addEvent() {
+    const ev = ACCESS_EVENTS_POOL[Math.floor(Math.random()*ACCESS_EVENTS_POOL.length)];
+    const now = new Date();
+    const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+    const div = document.createElement('div');
+    div.style.cssText='display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);animation:slideIn .3s ease';
+    div.innerHTML=`<div class="av ${ev.av}" style="width:28px;height:28px;border-radius:8px;font-size:10px">${ev.init}</div><div style="flex:1;min-width:0"><div style="font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ev.name}</div><div style="font-size:10px;color:#475569">${ev.zone}</div></div><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:100px;${ev.d==='ALLOW'?'background:rgba(16,185,129,.12);color:#34D399':'background:rgba(248,113,113,.12);color:#F87171'}">${ev.d==='ALLOW'?'✓':'✗'}</span>`;
+    feed.insertBefore(div, feed.firstChild);
+    while (feed.children.length > 5) feed.removeChild(feed.lastChild);
+  }
+  addEvent(); addEvent(); addEvent(); addEvent(); addEvent();
+  miniInterval = setInterval(addEvent, 3500);
+}
+
+// ── ACCESS FULL FEED ─────────────────────────────────────────────────────────
+let accessInterval;
+function renderAccessFeed() {
+  const feed = document.getElementById('access-feed');
+  if (!feed) return;
+  feed.innerHTML = '';
+  // populate initial 8
+  const initialEvents = [
+    {t:'12:45:23',ev:ACCESS_EVENTS_POOL[0]},
+    {t:'12:44:51',ev:ACCESS_EVENTS_POOL[1]},
+    {t:'12:44:12',ev:ACCESS_EVENTS_POOL[2]},
+    {t:'12:43:45',ev:ACCESS_EVENTS_POOL[9]},
+    {t:'12:43:22',ev:ACCESS_EVENTS_POOL[7]},
+    {t:'12:42:08',ev:ACCESS_EVENTS_POOL[3]},
+    {t:'12:41:55',ev:ACCESS_EVENTS_POOL[4]},
+    {t:'12:41:10',ev:ACCESS_EVENTS_POOL[8]},
+  ];
+  initialEvents.forEach(({t,ev}) => appendAccessRow(feed, t, ev));
+  clearInterval(accessInterval);
+  accessInterval = setInterval(() => {
+    const ev = ACCESS_EVENTS_POOL[Math.floor(Math.random()*ACCESS_EVENTS_POOL.length)];
+    const now = new Date();
+    const t = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')+':'+now.getSeconds().toString().padStart(2,'0');
+    appendAccessRow(feed, t, ev, true);
+    while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+  }, 3000);
+}
+
+function appendAccessRow(feed, t, ev, isNew=false) {
+  const row = document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;gap:14px;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,.04);'+(isNew?'animation:slideIn .35s ease':'');
+  row.innerHTML=`
+    <div style="font-family:monospace;font-size:12px;color:#475569;width:60px;flex-shrink:0">${t}</div>
+    <div class="ldot${ev.d==='DENY'?'-red':''} blink" style="flex-shrink:0"></div>
+    <div class="av ${ev.av}" style="flex-shrink:0">${ev.init}</div>
+    <div style="flex:1"><div style="font-size:13px;font-weight:600">${ev.name}</div><div style="font-size:11px;color:#475569">${ev.id} · ${ev.zone}</div></div>
+    ${ev.reason?`<div style="font-size:11px;color:#F87171;background:rgba(248,113,113,.08);padding:3px 10px;border-radius:100px;border:1px solid rgba(248,113,113,.2)">${ev.reason}</div>`:''}
+    <span class="badge ${ev.d==='ALLOW'?'badge-allow':'badge-deny'}">${ev.d==='ALLOW'?'✓ ALLOWED':'✗ DENIED'}</span>`;
+  feed.insertBefore(row, feed.firstChild);
+}
+
+// ── MEMBERS TABLE ────────────────────────────────────────────────────────────
+let currentFilter = 'all';
+function renderMembers(filter) {
+  currentFilter = filter;
+  const tbody = document.getElementById('members-table-body');
+  if (!tbody) return;
+  const filtered = filter === 'all' ? MEMBERS : MEMBERS.filter(m => m.status === filter);
+  tbody.innerHTML = filtered.map((m,i) => {
+    const badgeClass = {active:'badge-active',expired:'badge-expired',frozen:'badge-frozen',due:'badge-due'}[m.status]||'badge-active';
+    const statusLabel = {active:'Active',expired:'Expired',frozen:'Frozen',due:'Due'}[m.status]||m.status;
+    return `<div class="trow" style="padding:11px 20px;display:flex;align-items:center;gap:0">
+      <div style="font-size:12px;color:#475569;width:40px">${(i+1).toString().padStart(2,'0')}</div>
+      <div style="display:flex;align-items:center;gap:10px;flex:2">
+        <div class="av ${m.av}">${m.init}</div>
+        <div><div style="font-size:13px;font-weight:600">${m.name}</div><div style="font-size:11px;color:#475569">${m.id} · ${m.phone}</div></div>
+      </div>
+      <div style="width:100px;font-size:12px;color:#94A3B8">${m.plan}</div>
+      <div style="width:90px"><span class="badge ${badgeClass}">${statusLabel}</span></div>
+      <div style="width:110px;font-size:12px;color:#94A3B8">${m.valid}</div>
+      <div style="width:80px;font-size:12px;color:#64748B">${m.branch.split(' ')[0]}</div>
+      <div style="width:80px;display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn-ghost" style="padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.08)" title="View">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <button class="btn-ghost" style="padding:5px;border-radius:7px;border:1px solid rgba(255,255,255,.08)" title="Edit">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterChip(el, filter) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+  renderMembers(filter);
+}
+
+// ── MODAL ────────────────────────────────────────────────────────────────────
+function showModal() { document.getElementById('modal').style.display='flex'; }
+function closeModal() { document.getElementById('modal').style.display='none'; }
+
+// ── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, color='#A78BFA') {
+  const t = document.getElementById('toast');
+  const ti = document.getElementById('toast-inner');
+  ti.innerHTML = `<span style="color:${color};margin-right:8px">●</span>${msg}`;
+  t.style.display='block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.style.display='none', 3500);
+}
+
+// ── DEVICES ───────────────────────────────────────────────────────────────────
+function renderDevices(filter) {
+  const grid = document.getElementById('devices-grid');
+  if (!grid) return;
+  const list = filter === 'all' ? DEVICES
+    : filter === 'online'  ? DEVICES.filter(d => d.status === 'online')
+    : filter === 'offline' ? DEVICES.filter(d => d.status === 'offline')
+    : DEVICES.filter(d => d.syncPending > 0);
+
+  grid.innerHTML = list.map(d => {
+    const isOnline = d.status === 'online';
+    const syncColor = d.syncStatus === 'synced' ? '#34D399' : d.syncStatus === 'pending' ? '#FBBF24' : '#F87171';
+    const syncLabel = d.syncStatus === 'synced' ? '✓ Synced' : d.syncStatus === 'pending' ? `⏳ ${d.syncPending} pending` : '✗ Error';
+    const protoColor = d.protocol === 'TCP/IP' ? '#22D3EE' : d.protocol === 'Wiegand' ? '#A78BFA' : '#FBBF24';
+    const connStr = d.protocol === 'TCP/IP' ? `${d.ip}:${d.port}` : d.protocol === 'RS485' ? d.port : 'GPIO wired';
+
+    return `<div class="kpi-card hover-lift" style="padding:0;overflow:hidden;${!isOnline ? 'border-color:rgba(248,113,113,.2)' : ''}">
+      <!-- Card Header -->
+      <div style="padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px">
+        <div style="width:44px;height:44px;background:${isOnline ? 'rgba(16,185,129,.1)' : 'rgba(248,113,113,.1)'};border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${d.typeIcon}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.name}</div>
+          <div style="font-size:11px;color:#475569;margin-top:2px;font-family:monospace">${d.id}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div style="display:flex;align-items:center;gap:5px">
+            <div class="ldot${isOnline ? '' : '-red'} ${isOnline ? 'blink' : ''}" style="width:8px;height:8px"></div>
+            <span style="font-size:12px;font-weight:700;color:${isOnline ? '#34D399' : '#F87171'}">${isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+          </div>
+          <span style="font-size:10px;color:#475569">${d.heartbeat}</span>
+        </div>
+      </div>
+
+      <!-- Details grid -->
+      <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">TYPE</div>
+          <div style="font-size:12px;font-weight:600;color:#E2E8F0">${d.type}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">BRANCH</div>
+          <div style="font-size:12px;font-weight:600;color:#E2E8F0">${d.branch}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">ZONE / DOOR</div>
+          <div style="font-size:12px;font-weight:600;color:#E2E8F0">${d.zone}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">PROTOCOL</div>
+          <div style="display:inline-flex;padding:2px 8px;border-radius:100px;background:${protoColor}18;border:1px solid ${protoColor}35;color:${protoColor};font-size:11px;font-weight:700">${d.protocol}</div>
+        </div>
+        <div style="grid-column:span 2">
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">CONNECTION</div>
+          <div style="font-size:12px;font-family:monospace;color:#94A3B8">${connStr}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">SYNC STATUS</div>
+          <div style="font-size:12px;font-weight:700;color:${syncColor}">${syncLabel}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">TOTAL EVENTS</div>
+          <div style="font-size:12px;font-weight:700;color:#F1F5F9">${d.events.toLocaleString('en-IN')}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">RELAY CONTROL</div>
+          <div style="font-size:12px;font-weight:600;color:${d.relay ? '#34D399' : '#475569'}">${d.relay ? '✓ Enabled' : '— Disabled'}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.05em;margin-bottom:3px">REGISTERED</div>
+          <div style="font-size:12px;color:#64748B">${d.addedOn}</div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="padding:10px 18px 14px;display:flex;gap:8px;border-top:1px solid rgba(255,255,255,.06)">
+        <button class="btn-outline" style="flex:1;font-size:11px;padding:7px" onclick="showToast('Opening logs for ${d.id}…','#A78BFA')">
+          View Logs
+        </button>
+        <button class="btn-outline" style="flex:1;font-size:11px;padding:7px" onclick="showToast('Syncing ${d.id}…','#22D3EE')">
+          Force Sync
+        </button>
+        <button class="btn-outline" style="flex:1;font-size:11px;padding:7px" onclick="showToast('Edit device ${d.id}','#F1F5F9')">
+          Edit
+        </button>
+        <button class="btn-ghost" style="padding:7px 10px;border:1px solid rgba(248,113,113,.2);border-radius:8px;color:#F87171" title="Remove" onclick="showToast('Confirm removal in production — disabled in UI preview','#F87171')">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterDeviceChip(el, filter) {
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+  renderDevices(filter);
+}
+
+function showDeviceModal() { document.getElementById('device-modal').style.display = 'flex'; }
+function closeDeviceModal() { document.getElementById('device-modal').style.display = 'none'; }
+
+function toggleProtocolFields(proto) {
+  const tcp = ['field-ip','field-port'];
+  const serial = ['field-serial','field-baud'];
+  if (proto === 'tcp') {
+    tcp.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='block'; });
+    serial.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
+  } else if (proto === 'rs485') {
+    tcp.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
+    serial.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='block'; });
+  } else {
+    tcp.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
+    serial.forEach(id => { const el=document.getElementById(id); if(el) el.style.display='none'; });
+  }
+}
+
+function addDevice() {
+  const newDev = {id:'DEV-K05',name:'New Device',type:'RFID Reader',typeIcon:'📡',branch:'Koramangala',zone:'Main Entry',protocol:'TCP/IP',ip:'192.168.1.105',port:'4370',status:'online',heartbeat:'just now',syncStatus:'synced',syncPending:0,relay:true,events:0,addedOn:'May 07, 2026'};
+  DEVICES.unshift(newDev);
+  renderDevices('all');
+  showToast('Device DEV-K05 registered and linked to EDGE! 🎉','#34D399');
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+// Pre-fill fees page (uses template literals above inline, no JS needed)
+// Auto-init dashboard charts after load
+document.addEventListener('DOMContentLoaded', () => {
+  // nothing - login shows first
+});
+</script>
+</body>
+</html>

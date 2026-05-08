@@ -1,0 +1,52 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export interface AuthUser {
+  _id: string;
+  displayName: string;
+  email: string;
+  photoURL?: string;
+  role: 'owner' | 'manager' | 'trainer' | 'receptionist';
+  branchIds: string[];
+}
+
+interface AuthState {
+  token: string | null;
+  refreshToken: string | null;
+  user: AuthUser | null;
+  selectedBranchId: string | null;
+
+  setAuth: (token: string, refreshToken: string, user: AuthUser) => void;
+  setToken: (token: string) => void;
+  setSelectedBranch: (branchId: string) => void;
+  logout: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      token: null,
+      refreshToken: null,
+      user: null,
+      selectedBranchId: null,
+
+      setAuth: (token, refreshToken, user) =>
+        set({ token, refreshToken, user, selectedBranchId: user.branchIds[0] ?? null }),
+
+      setToken: (token) => set({ token }),
+
+      setSelectedBranch: (branchId) => set({ selectedBranchId: branchId }),
+
+      logout: () => set({ token: null, refreshToken: null, user: null, selectedBranchId: null }),
+    }),
+    {
+      name: 'edge-gym-auth',
+      partialize: (s) => ({
+        token: s.token,
+        refreshToken: s.refreshToken,
+        user: s.user,
+        selectedBranchId: s.selectedBranchId,
+      }),
+    },
+  ),
+);
