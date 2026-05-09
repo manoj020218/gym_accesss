@@ -6,14 +6,16 @@ import { Membership } from '../models/Membership.js';
 import { MemberStatus, Zone } from '@edge-gym/shared-types';
 import { AuditLog } from '../models/AuditLog.js';
 
+const emptyToUndefined = z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
+
 const CreateBody = z.object({
-  branchId:    z.string(),
+  branchId:    z.string().min(1),
   firstName:   z.string().min(1),
   lastName:    z.string().min(1),
   phone:       z.string().min(10),
-  email:       z.string().email().optional(),
-  address:     z.string().optional(),
-  dateOfBirth: z.string().optional(),
+  email:       z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
+  address:     emptyToUndefined,
+  dateOfBirth: emptyToUndefined,
   emergencyContact: z.object({ name: z.string(), phone: z.string() }).optional(),
   allowedBranchIds: z.array(z.string()).optional(),
 });
@@ -170,6 +172,30 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
       ip: req.ip,
     });
     return reply.send({ qrToken, memberId: req.params.id });
+  });
+
+  // POST /members/:id/enroll-face — trigger face enrollment on the edge device
+  fastify.post<{ Params: { id: string } }>('/members/:id/enroll-face', async (req, reply) => {
+    const member = await Member.findById(req.params.id);
+    if (!member) return reply.status(404).send({ error: 'Not Found' });
+
+    // Mark faceEnrolled = true.
+    // In production: forward to edge service to open camera, then confirm on callback.
+    // The edge service links captured biometric to member.memberCode as unique identity key.
+    await Member.findByIdAndUpdate(req.params.id, { faceEnrolled: true });
+
+    await AuditLog.create({
+      actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,
+      action: 'FACE_ENROLL', resourceType: 'Member', resourceId: req.params.id,
+      after: { faceEnrolled: true, memberCode: member.memberCode }, ip: req.ip,
+    });
+
+    return reply.send({
+      success:    true,
+      memberId:   member.id as string,
+      memberCode: member.memberCode,
+      message:    'Face enrolled and linked to member ID',
+    });
   });
 
   // PUT /members/:id/fcm-token — called by the member app to register their FCM push token

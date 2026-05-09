@@ -12,6 +12,7 @@ export interface Member {
   rfidCardId?: string;
   qrToken?: string;
   fcmToken?: string;
+  faceEnrolled?: boolean;
   hasDues?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -43,4 +44,9 @@ export const memberApi = {
 
   regenerateQr: (id: string) =>
     api.post<{ qrToken: string }>(`/members/${id}/qr-token`).then((r) => r.data),
+
+  enrollFace: (id: string) =>
+    api.post<{ success: boolean; memberId: string; memberCode: string; message: string }>(
+      `/members/${id}/enroll-face`,
+    ).then((r) => r.data),
 };

@@ -22,10 +22,13 @@ export default function MemberDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [tab, setTab]             = useState<'membership'|'payments'|'access'>('membership');
-  const [showEdit, setShowEdit]   = useState(false);
-  const [showPlan, setShowPlan]   = useState(false);
-  const [showBlock, setShowBlock] = useState(false);
+  const [showEdit, setShowEdit]     = useState(false);
+  const [showPlan, setShowPlan]     = useState(false);
+  const [showBlock, setShowBlock]   = useState(false);
+  const [showEnroll, setShowEnroll] = useState(false);
   const [blockReason, setBlockReason] = useState('');
+  const [enrollStep, setEnrollStep] = useState<'idle'|'scanning'|'success'|'error'>('idle');
+  const [enrollResult, setEnrollResult] = useState<{ memberCode: string } | null>(null);
 
   const { data: member, isLoading } = useQuery({
     queryKey: ['member', id],
@@ -51,6 +54,14 @@ export default function MemberDetail() {
     enabled:  !!id && tab === 'access',
   });
 
+  const { data: devices = [], isLoading: devicesLoading } = useQuery({
+    queryKey: ['access-devices', member?.branchId],
+    queryFn:  () => accessApi.devices(member?.branchId),
+    enabled:  showEnroll && !!member?.branchId,
+    refetchInterval: showEnroll ? 8000 : false,
+  });
+  const deviceOnline = devices.some((d) => d.isOnline);
+
   const blockMut = useMutation({
     mutationFn: () => memberApi.block(id!, blockReason),
     onSuccess: () => {
@@ -75,6 +86,27 @@ export default function MemberDetail() {
       void qc.invalidateQueries({ queryKey: ['member', id] });
     },
   });
+
+  const enrollMut = useMutation({
+    mutationFn: () => memberApi.enrollFace(id!),
+    onSuccess: (data) => {
+      setEnrollResult({ memberCode: data.memberCode });
+      setEnrollStep('success');
+      void qc.invalidateQueries({ queryKey: ['member', id] });
+    },
+    onError: () => setEnrollStep('error'),
+  });
+
+  const handleStartEnroll = () => {
+    setEnrollStep('scanning');
+    enrollMut.mutate();
+  };
+
+  const handleCloseEnroll = () => {
+    setShowEnroll(false);
+    setEnrollStep('idle');
+    setEnrollResult(null);
+  };
 
   if (isLoading) return <Layout title="Member"><PageSpinner /></Layout>;
   if (!member)  return <Layout title="Member"><p className="text-muted text-sm p-6">Member not found.</p></Layout>;
@@ -125,6 +157,7 @@ export default function MemberDetail() {
               { label: 'Branch', value: member.branchId },
               { label: 'Member since', value: fmtDate(member.createdAt) },
               { label: 'RFID', value: member.rfidCardId ?? 'Not assigned' },
+              { label: 'Face ID', value: member.faceEnrolled ? 'Enrolled ✓' : 'Not enrolled' },
             ].map(({ label, value }) => (
               <div key={label} className="flex justify-between">
                 <span className="text-muted text-xs">{label}</span>
@@ -162,6 +195,20 @@ export default function MemberDetail() {
           </div>
 
           <div className="p-5">
+            {tab === 'access' && (
+              <div className="flex justify-end mb-3">
+                <button
+                  onClick={() => { setShowEnroll(true); setEnrollStep('idle'); }}
+                  title="Enroll Face on Device"
+                  className="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-lg transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </button>
+              </div>
+            )}
             {tab === 'membership' && (
               <div className="space-y-3">
                 {memberships?.map((ms) => (
@@ -252,6 +299,103 @@ export default function MemberDetail() {
           <Button variant="danger" loading={blockMut.isPending} onClick={() => blockMut.mutate()}>
             Block Member
           </Button>
+        </div>
+      </Modal>
+
+      <Modal open={showEnroll} onClose={handleCloseEnroll} title="Face Enrollment">
+        <div className="flex flex-col items-center gap-5 py-4">
+          {enrollStep === 'idle' && (
+            <>
+              <div className="w-20 h-20 rounded-full bg-purple-600/20 border-2 border-purple-500/40 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-purple-400">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>
+
+              {/* Device status indicator */}
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                devicesLoading
+                  ? 'border-slate-600 text-slate-400 bg-slate-800/50'
+                  : deviceOnline
+                    ? 'border-emerald-500/40 text-emerald-300 bg-emerald-900/20'
+                    : 'border-red-500/40 text-red-300 bg-red-900/20'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  devicesLoading
+                    ? 'bg-slate-500 animate-pulse'
+                    : deviceOnline
+                      ? 'bg-emerald-400 animate-pulse'
+                      : 'bg-red-500'
+                }`} />
+                {devicesLoading ? 'Checking device…' : deviceOnline ? 'Device Online' : 'Device Offline'}
+              </div>
+
+              <div className="text-center">
+                <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
+                {deviceOnline
+                  ? <p className="text-xs text-muted">This will signal the edge device to open the camera and capture the member's face, linking it to their member ID.</p>
+                  : <p className="text-xs text-red-400">The access device is not reachable. Power it on and wait for it to check in, then try again.</p>
+                }
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
+                <Button onClick={handleStartEnroll} disabled={!deviceOnline || devicesLoading}>
+                  Start Enrollment
+                </Button>
+              </div>
+            </>
+          )}
+
+          {enrollStep === 'scanning' && (
+            <>
+              <div className="w-20 h-20 rounded-full bg-purple-600/20 border-2 border-purple-500 flex items-center justify-center animate-pulse">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-purple-400">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-slate-200 mb-1">Camera Active — Please Look at the Device</p>
+                <p className="text-xs text-muted">Keep the member's face in frame. The device is capturing biometric data…</p>
+              </div>
+            </>
+          )}
+
+          {enrollStep === 'success' && (
+            <>
+              <div className="w-20 h-20 rounded-full bg-emerald-600/20 border-2 border-emerald-500/60 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-emerald-400">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-emerald-300 mb-1">Face Enrolled Successfully</p>
+                {enrollResult && (
+                  <p className="text-xs text-muted">Linked to member ID: <span className="font-mono text-slate-300">{enrollResult.memberCode}</span></p>
+                )}
+              </div>
+              <Button onClick={handleCloseEnroll}>Done</Button>
+            </>
+          )}
+
+          {enrollStep === 'error' && (
+            <>
+              <div className="w-20 h-20 rounded-full bg-red-600/20 border-2 border-red-500/60 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-red-400">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-red-300 mb-1">Enrollment Failed</p>
+                <p className="text-xs text-muted">Could not reach the edge device or enrollment was rejected. Please try again.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={handleCloseEnroll}>Close</Button>
+                <Button onClick={handleStartEnroll}>Retry</Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </Layout>

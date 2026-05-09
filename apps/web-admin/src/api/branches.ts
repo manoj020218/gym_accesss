@@ -10,7 +10,7 @@ export interface Branch {
 }
 
 export const branchApi = {
-  list: () => api.get<Branch[]>('/branches').then((r) => r.data),
+  list: () => api.get<{ data: Branch[]; total: number }>('/branches').then((r) => r.data.data),
   get:  (id: string) => api.get<Branch>(`/branches/${id}`).then((r) => r.data),
   create: (body: Partial<Branch>) => api.post<Branch>('/branches', body).then((r) => r.data),
   update: (id: string, body: Partial<Branch>) =>

@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { AccessEvent } from '../models/AccessEvent.js';
-import { AccessDecision, Zone, SubjectType } from '@edge-gym/shared-types';
-import { StaffRole } from '@edge-gym/shared-types';
+import { AccessDevice } from '../models/AccessDevice.js';
+import { AccessDecision, Zone, SubjectType, StaffRole } from '@edge-gym/shared-types';
 
 const ListQuery = z.object({
   branchId:    z.string().optional(),
@@ -105,6 +105,36 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       });
     },
   );
+  // GET /access-devices — list devices with live online status derived from heartbeat
+  fastify.get('/access-devices', async (req, reply) => {
+    const { branchId } = req.query as { branchId?: string };
+    const filter: Record<string, unknown> = { isActive: true };
+
+    if (req.actor.role !== StaffRole.Owner) {
+      filter['branchId'] = { $in: req.actor.branchIds };
+    } else if (branchId) {
+      filter['branchId'] = branchId;
+    }
+
+    const devices = await AccessDevice.find(filter).lean();
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    return reply.send(
+      devices.map((d) => ({
+        _id:             d._id,
+        deviceId:        d.deviceCode,
+        name:            d.name,
+        branchId:        d.branchId,
+        zone:            d.zone,
+        type:            d.type,
+        isOnline:        !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo),
+        lastHeartbeat:   d.lastHeartbeatAt?.toISOString(),
+        pendingEventCount: 0,
+        createdAt:       d.createdAt.toISOString(),
+      })),
+    );
+  });
+
 };
 
 export default accessRoutes;

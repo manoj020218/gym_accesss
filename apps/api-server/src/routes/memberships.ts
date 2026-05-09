@@ -43,7 +43,28 @@ function addMonths(d: Date, n: number): Date {
   return r;
 }
 
+const ListQuery = z.object({
+  memberId: z.string().optional(),
+  branchId: z.string().optional(),
+});
+
 const membershipRoutes: FastifyPluginAsync = async (fastify) => {
+
+  // GET /memberships
+  fastify.get('/memberships', async (req, reply) => {
+    const q = ListQuery.parse(req.query);
+    const filter: Record<string, unknown> = {};
+
+    if (q.memberId) filter['memberId'] = q.memberId;
+    if (q.branchId) filter['branchId'] = q.branchId;
+
+    if (req.actor.role !== 'owner' && !q.memberId) {
+      filter['branchId'] = { $in: req.actor.branchIds };
+    }
+
+    const data = await Membership.find(filter).sort({ createdAt: -1 }).lean();
+    return reply.send(data);
+  });
 
   // POST /memberships  — create + record payment + activate member
   fastify.post<{ Body: z.infer<typeof CreateBody> }>('/memberships', async (req, reply) => {

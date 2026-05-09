@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { Staff } from '../models/Staff.js';
+import { User } from '../models/User.js';
 import { AccessEvent } from '../models/AccessEvent.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { requireRoles } from '../middleware/rbac.js';
@@ -117,6 +118,30 @@ const staffRoutes: FastifyPluginAsync = async (fastify) => {
       const staff = await Staff.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
       if (!staff) return reply.status(404).send({ error: 'Not Found' });
       return reply.status(204).send();
+    },
+  );
+
+  // PUT /users/:userId/permissions — owner only, assign permissions to a login account
+  fastify.put<{ Params: { userId: string }; Body: { permissions: string[] } }>(
+    '/users/:userId/permissions',
+    { preHandler: requireRoles(StaffRole.Owner) },
+    async (req, reply) => {
+      const { permissions } = req.body as { permissions: string[] };
+      if (!Array.isArray(permissions)) {
+        return reply.status(400).send({ error: 'permissions must be an array' });
+      }
+      const user = await User.findByIdAndUpdate(
+        req.params.userId,
+        { permissions },
+        { new: true },
+      );
+      if (!user) return reply.status(404).send({ error: 'User not found' });
+      await AuditLog.create({
+        actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,
+        action: 'UPDATE_PERMISSIONS', resourceType: 'User', resourceId: req.params.userId,
+        after: { permissions }, ip: req.ip,
+      });
+      return reply.send({ userId: user.id, permissions: user.permissions });
     },
   );
 

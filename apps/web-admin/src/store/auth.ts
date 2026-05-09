@@ -8,6 +8,11 @@ export interface AuthUser {
   photoURL?: string;
   role: 'owner' | 'manager' | 'trainer' | 'receptionist';
   branchIds: string[];
+  permissions?: string[];
+}
+
+export function hasPerm(user: AuthUser | null, perm: string): boolean {
+  return user?.role === 'owner' || (user?.permissions ?? []).includes(perm);
 }
 
 interface AuthState {

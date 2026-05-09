@@ -31,6 +31,11 @@ export const membershipApi = {
   plans: (branchId: string) =>
     api.get<MemberPlan[]>('/member-plans', { params: { branchId } }).then((r) => r.data),
 
+  createPlan: (body: {
+    name: string; planType: string; durationValue: number; durationUnit: string;
+    price: number; gstPercent: number; branchId: string; allowedZones: string[];
+  }) => api.post<MemberPlan>('/member-plans', body).then((r) => r.data),
+
   listForMember: (memberId: string) =>
     api.get<Membership[]>('/memberships', { params: { memberId } }).then((r) => r.data),
 

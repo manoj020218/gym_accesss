@@ -15,8 +15,8 @@ const DateRangeQuery = z.object({
 
 const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
-  // GET /reports/dues
-  fastify.get('/reports/dues', async (req, reply) => {
+  // GET /dues
+  fastify.get('/dues', async (req, reply) => {
     const { branchId } = DateRangeQuery.parse(req.query);
     const filter: Record<string, unknown> = { status: MemberStatus.Expired };
     if (branchId) filter['branchId'] = branchId;
@@ -25,8 +25,8 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: members, total: members.length });
   });
 
-  // GET /reports/daily-collection
-  fastify.get('/reports/daily-collection', async (req, reply) => {
+  // GET /daily-collection
+  fastify.get('/daily-collection', async (req, reply) => {
     const { branchId, from, to } = DateRangeQuery.parse(req.query);
     const matchStage: Record<string, unknown> = {};
     if (branchId) matchStage['branchId'] = branchId;
@@ -52,7 +52,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /reports/expiring — members expiring within N days
   fastify.get<{ Querystring: { days?: string; branchId?: string } }>(
-    '/reports/expiring',
+    '/expiring',
     async (req, reply) => {
       const days = Number(req.query.days ?? 7);
       const until = new Date(Date.now() + days * 86_400_000);
@@ -68,8 +68,8 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
-  // GET /reports/access-denied
-  fastify.get('/reports/access-denied', async (req, reply) => {
+  // GET /access-denied
+  fastify.get('/access-denied', async (req, reply) => {
     const { branchId, from, to } = DateRangeQuery.parse(req.query);
     const filter: Record<string, unknown> = { decision: AccessDecision.Deny };
     if (branchId) filter['branchId'] = branchId;
@@ -84,8 +84,8 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data, total: data.length });
   });
 
-  // GET /reports/stock-low
-  fastify.get('/reports/stock-low', async (req, reply) => {
+  // GET /stock-low
+  fastify.get('/stock-low', async (req, reply) => {
     const { branchId } = DateRangeQuery.parse(req.query);
     const filter: Record<string, unknown> = {
       $expr: { $lte: ['$currentStock', '$minStockLevel'] },
@@ -96,8 +96,8 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data, total: data.length });
   });
 
-  // GET /reports/attendance
-  fastify.get('/reports/attendance', async (req, reply) => {
+  // GET /attendance
+  fastify.get('/attendance', async (req, reply) => {
     const { branchId, from, to } = DateRangeQuery.parse(req.query);
     const filter: Record<string, unknown> = { decision: AccessDecision.Allow };
     if (branchId) filter['branchId'] = branchId;

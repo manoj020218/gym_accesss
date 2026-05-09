@@ -19,6 +19,7 @@ import productRoutes      from './routes/products.js';
 import accessRoutes       from './routes/access.js';
 import paymentRoutes      from './routes/payments.js';
 import notificationRoutes from './routes/notifications.js';
+import memberPlanRoutes   from './routes/member-plans.js';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -32,13 +33,13 @@ export async function buildApp() {
 
   // ── Plugins ──────────────────────────────────────────────────────────────────
   await fastify.register(cors, {
-    origin: config.CORS_ORIGINS.split(','),
+    // In dev mode reflect any origin; in production restrict to CORS_ORIGINS list
+    origin: config.DEV_SKIP_FIREBASE === 'true' ? true : config.CORS_ORIGINS.split(','),
     credentials: true,
   });
 
   await fastify.register(jwt, {
-    secret:    config.JWT_SECRET,
-    namespace: 'api',
+    secret: config.JWT_SECRET,
   });
 
   await fastify.register(mongoPlugin);
@@ -71,14 +72,16 @@ export async function buildApp() {
   await fastify.register(accessRoutes,       { prefix: API });
   await fastify.register(paymentRoutes,      { prefix: API });
   await fastify.register(notificationRoutes, { prefix: `${API}/notifications` });
+  await fastify.register(memberPlanRoutes,   { prefix: API });
 
   // ── Global error handler ─────────────────────────────────────────────────────
   fastify.setErrorHandler((err, _req, reply) => {
     fastify.log.error(err);
-    const status = err.statusCode ?? 500;
+    const isZodError = err.name === 'ZodError';
+    const status = isZodError ? 400 : (err.statusCode ?? 500);
     return reply.status(status).send({
       statusCode: status,
-      error:      err.name ?? 'Internal Server Error',
+      error:      isZodError ? 'Validation Error' : (err.name ?? 'Internal Server Error'),
       message:    err.message,
     });
   });

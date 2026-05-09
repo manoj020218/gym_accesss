@@ -44,11 +44,20 @@ export interface UserDTO {
   lastLoginAt?: string;
 }
 
+export const PERMISSIONS = {
+  MANAGE_PLANS:   'manage_plans',
+  MANAGE_BILLING: 'manage_billing',
+  VIEW_REPORTS:   'view_reports',
+} as const;
+
+export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
+
 export interface JwtPayload {
   sub: string;
   email: string;
   role: string;
   branchIds: string[];
+  permissions: string[];
   iat: number;
   exp: number;
 }

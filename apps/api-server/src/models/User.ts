@@ -8,6 +8,7 @@ export interface IUser extends Document {
   photoUrl?: string;
   role: StaffRole;
   branchIds: string[];
+  permissions: string[];
   isActive: boolean;
   lastLoginAt?: Date;
   createdAt: Date;
@@ -24,6 +25,7 @@ const userSchema = new Schema<IUser>(
     branchIds:    [String],
     isActive:     { type: Boolean, default: true },
     lastLoginAt:  Date,
+    permissions:  { type: [String], default: [] },
   },
   { timestamps: true },
 );

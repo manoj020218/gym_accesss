@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(plink -ssh -pw 3CawnvR3 root@154.61.69.200 -batch ' *)",
+      "Bash(tar --exclude=apps/web-admin --exclude=apps/member-app --exclude=apps/hardware-adapter --exclude=apps/edge-service '--exclude=*/node_modules' '--exclude=*/dist' --exclude=.git --exclude=ui --exclude=.qodo '--exclude=*.log' -czf /tmp/gym_vps.tar.gz package.json pnpm-workspace.yaml tsconfig.base.json .gitignore packages/shared-types packages/access-engine apps/api-server infra/pm2)",
+      "Bash(tar -tzf /tmp/gym_vps.tar.gz)",
+      "Bash(pscp *)",
+      "Bash(plink *)",
+      "PowerShell(ping *)",
+      "PowerShell(Start-Process \"http://localhost:9090\")",
+      "Bash(not exist *)",
+      "PowerShell(pnpm *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(netstat *)",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:8080/api/v1/auth/dev-login\" -Method POST -ContentType \"application/json\" -UseBasicParsing | Select-Object StatusCode, Content)",
+      "PowerShell(Get-Process *)",
+      "Bash(pnpm dev:local)",
+      "Bash(echo \"API server PID: $!\")",
+      "Bash(pnpm dev *)",
+      "Bash(echo \"Vite PID: $!\")",
+      "Bash(netstat -ano)",
+      "PowerShell(taskkill *)"
+    ]
+  }
+}

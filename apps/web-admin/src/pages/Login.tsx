@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginWithGoogle } from '../api/auth';
+import { loginWithGoogle, loginAsDev } from '../api/auth';
 import { Spinner } from '../components/ui/Spinner';
 import { Toaster } from '../components/ui/Toast';
 import { toast } from '../store/toast';
@@ -16,6 +16,19 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Login failed';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDevLogin = async () => {
+    setLoading(true);
+    try {
+      await loginAsDev();
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Dev login failed — is the API server running?';
       toast.error(msg);
     } finally {
       setLoading(false);
@@ -98,7 +111,24 @@ export default function Login() {
             <div className="flex-1 h-px bg-white/[0.08]" />
           </div>
 
-          <p className="text-center text-xs text-dimmed">
+          {/* Dev login — only shown in local Vite dev mode */}
+          {import.meta.env.DEV && (
+            <button
+              onClick={handleDevLogin}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 rounded-[10px] py-3 px-5 font-semibold text-sm transition-all disabled:opacity-60"
+              style={{
+                background: 'rgba(16,185,129,0.12)',
+                border: '1px solid rgba(16,185,129,0.35)',
+                color: '#10b981',
+              }}
+            >
+              {loading ? <Spinner size={16} className="text-emerald-400" /> : '🧪'}
+              Dev Login (local only)
+            </button>
+          )}
+
+          <p className="text-center text-xs text-dimmed mt-4">
             Secured by EDGE · Only authorized gym staff may sign in
           </p>
         </div>

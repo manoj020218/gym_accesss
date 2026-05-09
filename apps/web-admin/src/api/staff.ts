@@ -29,4 +29,7 @@ export const staffApi = {
 
   attendance: (id: string, params: { from?: string; to?: string }) =>
     api.get(`/staff/${id}/attendance`, { params }).then((r) => r.data),
+
+  updatePermissions: (userId: string, permissions: string[]) =>
+    api.put<{ userId: string; permissions: string[] }>(`/users/${userId}/permissions`, { permissions }).then((r) => r.data),
 };

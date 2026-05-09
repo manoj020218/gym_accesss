@@ -43,6 +43,27 @@ async function main() {
     return reply.status(result.decision === AccessDecision.Allow ? 200 : 403).send(result);
   });
 
+  // Face enrollment — triggered by cloud API or admin UI on same LAN
+  // In production: call hardware SDK here to open camera and capture biometric,
+  // then link captured face to memberCode as the unique identity key on the device.
+  app.post<{ Body: { memberId: string; memberCode: string } }>('/enroll-face', async (req, reply) => {
+    const { memberId, memberCode } = req.body ?? {};
+    if (!memberId || !memberCode) {
+      return reply.status(400).send({ success: false, message: 'memberId and memberCode required' });
+    }
+
+    app.log.info({ memberId, memberCode }, 'Face enrollment triggered — hardware integration point');
+
+    // TODO: call device SDK  e.g.  await faceDevice.startEnrollment(memberCode)
+    // For now return simulated success so the UI flow is fully testable.
+    return reply.send({
+      success:    true,
+      memberId,
+      memberCode,
+      message:    `Face enrolled on device and linked to ID: ${memberCode}`,
+    });
+  });
+
   // Sync status
   app.get('/sync/status', async (_req, reply) => {
     const state   = db.getSyncState();

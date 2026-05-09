@@ -6,7 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev":   "tsx watch src/index.ts",
+    "dev":       "node --env-file=.env --import tsx --watch src/index.ts",
+    "dev:local": "tsx src/dev-server.ts",
     "start": "node dist/index.js",
     "lint":  "tsc --noEmit",
     "test":  "vitest run",

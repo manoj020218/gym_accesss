@@ -15,8 +15,8 @@ export interface AccessRequest {
 }
 
 export interface AccessContext {
-  member?: EdgeMemberRecord;
-  staff?: EdgeStaffRecord;
+  member?: EdgeMemberRecord | undefined;
+  staff?: EdgeStaffRecord | undefined;
   blocklist: Set<string>;
   policies: EdgeAccessPolicy[];
   lastEntryBySubject: Map<string, Date>;
@@ -24,15 +24,15 @@ export interface AccessContext {
 
 export interface AccessResult {
   decision: AccessDecision;
-  denyReason?: DenyReason;
-  subjectName?: string;
-  allowedUntil?: Date;
+  denyReason?: DenyReason | undefined;
+  subjectName?: string | undefined;
+  allowedUntil?: Date | undefined;
   triggerRelay: boolean;
 }
 
 export interface RuleResult {
   pass: boolean;
-  denyReason?: DenyReason;
+  denyReason?: DenyReason | undefined;
 }
 
 export type Rule = (

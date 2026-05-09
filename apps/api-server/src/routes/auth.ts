@@ -9,6 +9,49 @@ const RefreshBody = z.object({ refreshToken: z.string().min(1) });
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
 
+  // POST /auth/dev-login — only active when DEV_SKIP_FIREBASE=true
+  if (config.DEV_SKIP_FIREBASE === 'true') {
+    fastify.post(
+      '/auth/dev-login',
+      { config: { skipAuth: true } },
+      async (_req, reply) => {
+        let user = await User.findOne({ email: 'dev@edgegym.local' });
+        if (!user) {
+          user = await User.create({
+            firebaseUid: 'dev-local-uid',
+            email:       'dev@edgegym.local',
+            displayName: 'Dev Owner',
+            role:        StaffRole.Owner,
+            branchIds:   [],
+            isActive:    true,
+            lastLoginAt: new Date(),
+          });
+        } else {
+          user.lastLoginAt = new Date();
+          await user.save();
+        }
+
+        const payload = {
+          sub:         user.id as string,
+          email:       user.email,
+          role:        user.role,
+          branchIds:   user.branchIds,
+          permissions: user.permissions ?? [],
+        };
+        const accessToken  = fastify.jwt.sign(payload, { expiresIn: config.JWT_EXPIRES_IN });
+        const refreshToken = fastify.jwt.sign(
+          { sub: user.id },
+          { secret: config.REFRESH_TOKEN_SECRET, expiresIn: config.REFRESH_TOKEN_EXPIRES_IN },
+        );
+        return reply.send({
+          accessToken,
+          refreshToken,
+          user: { id: user.id, email: user.email, displayName: user.displayName, role: user.role, branchIds: user.branchIds },
+        });
+      },
+    );
+  }
+
   // POST /auth/google/login
   // Verify Firebase ID token → issue app JWT + refresh token
   fastify.post<{ Body: z.infer<typeof LoginBody> }>(
