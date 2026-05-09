@@ -85,7 +85,22 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
 
       await AccessDevice.findOneAndUpdate(
         { deviceCode: body.edgeDeviceId },
-        { lastHeartbeatAt: new Date() },
+        {
+          lastHeartbeatAt: new Date(),
+          $setOnInsert: {
+            name:          `Device ${body.edgeDeviceId}`,
+            branchId:      body.branchId,
+            zone:          'main_entry',
+            type:          'rfid',
+            protocol:      'tcp_ip',
+            relayEnabled:  true,
+            antiPassback:  'disabled',
+            secretKeyHash: 'auto-registered',
+            isActive:      true,
+            registeredAt:  new Date(),
+          },
+        },
+        { upsert: true, new: true },
       );
 
       const serverTime = new Date().toISOString();

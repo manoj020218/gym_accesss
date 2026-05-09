@@ -91,6 +91,15 @@ const navSystem = [
       </svg>
     ),
   },
+  {
+    to: '/diagnostics',
+    label: 'Diagnostics',
+    icon: (
+      <svg fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16" viewBox="0 0 24 24">
+        <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>
+      </svg>
+    ),
+  },
 ];
 
 function NavItem({ to, label, icon, live }: { to: string; label: string; icon: React.ReactNode; live?: boolean }) {

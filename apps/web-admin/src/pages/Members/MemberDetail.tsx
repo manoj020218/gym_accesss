@@ -16,6 +16,7 @@ import { toast } from '../../store/toast';
 import { fmtDate, fmtDatetime, fmtCurrency, initials, avatarColor } from '../../utils/format';
 import MemberForm from './MemberForm';
 import MembershipForm from '../Billing/MembershipForm';
+import AddDeviceWizard from './AddDeviceWizard';
 
 export default function MemberDetail() {
   const { id } = useParams<{ id: string }>();
@@ -25,10 +26,11 @@ export default function MemberDetail() {
   const [showEdit, setShowEdit]     = useState(false);
   const [showPlan, setShowPlan]     = useState(false);
   const [showBlock, setShowBlock]   = useState(false);
-  const [showEnroll, setShowEnroll] = useState(false);
-  const [blockReason, setBlockReason] = useState('');
-  const [enrollStep, setEnrollStep] = useState<'idle'|'scanning'|'success'|'error'>('idle');
-  const [enrollResult, setEnrollResult] = useState<{ memberCode: string } | null>(null);
+  const [showEnroll, setShowEnroll]       = useState(false);
+  const [showAddDevice, setShowAddDevice] = useState(false);
+  const [blockReason, setBlockReason]     = useState('');
+  const [enrollStep, setEnrollStep]       = useState<'idle'|'scanning'|'success'|'error'>('idle');
+  const [enrollResult, setEnrollResult]   = useState<{ memberCode: string } | null>(null);
 
   const { data: member, isLoading } = useQuery({
     queryKey: ['member', id],
@@ -313,37 +315,63 @@ export default function MemberDetail() {
                 </svg>
               </div>
 
-              {/* Device status indicator */}
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
-                devicesLoading
-                  ? 'border-slate-600 text-slate-400 bg-slate-800/50'
-                  : deviceOnline
-                    ? 'border-emerald-500/40 text-emerald-300 bg-emerald-900/20'
-                    : 'border-red-500/40 text-red-300 bg-red-900/20'
-              }`}>
-                <span className={`w-2 h-2 rounded-full ${
-                  devicesLoading
-                    ? 'bg-slate-500 animate-pulse'
-                    : deviceOnline
-                      ? 'bg-emerald-400 animate-pulse'
-                      : 'bg-red-500'
-                }`} />
-                {devicesLoading ? 'Checking device…' : deviceOnline ? 'Device Online' : 'Device Offline'}
-              </div>
+              {/* ── No device registered yet ── */}
+              {!devicesLoading && devices.length === 0 && (
+                <>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-slate-200 mb-1">No device registered for this branch</p>
+                    <p className="text-xs text-muted">Add an access machine first — it only takes a minute.</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
+                    <Button onClick={() => { handleCloseEnroll(); setShowAddDevice(true); }}>
+                      + Add Machine to Branch
+                    </Button>
+                  </div>
+                </>
+              )}
 
-              <div className="text-center">
-                <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
-                {deviceOnline
-                  ? <p className="text-xs text-muted">This will signal the edge device to open the camera and capture the member's face, linking it to their member ID.</p>
-                  : <p className="text-xs text-red-400">The access device is not reachable. Power it on and wait for it to check in, then try again.</p>
-                }
-              </div>
-              <div className="flex gap-3">
-                <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
-                <Button onClick={handleStartEnroll} disabled={!deviceOnline || devicesLoading}>
-                  Start Enrollment
-                </Button>
-              </div>
+              {/* ── Device registered but offline ── */}
+              {!devicesLoading && devices.length > 0 && !deviceOnline && (
+                <>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-red-500/40 text-red-300 bg-red-900/20">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    Device Offline
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
+                    <p className="text-xs text-red-400">The access machine is not reachable. Power it on and wait for it to check in — this modal refreshes automatically.</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
+                    <Button disabled>Start Enrollment</Button>
+                  </div>
+                </>
+              )}
+
+              {/* ── Device online, ready ── */}
+              {(devicesLoading || deviceOnline) && (
+                <>
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                    devicesLoading
+                      ? 'border-slate-600 text-slate-400 bg-slate-800/50'
+                      : 'border-emerald-500/40 text-emerald-300 bg-emerald-900/20'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${devicesLoading ? 'bg-slate-500 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
+                    {devicesLoading ? 'Checking device…' : 'Device Online'}
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
+                    <p className="text-xs text-muted">This will signal the edge device to open the camera and capture the member's face, linking it to their member ID.</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
+                    <Button onClick={handleStartEnroll} disabled={devicesLoading || !deviceOnline}>
+                      Start Enrollment
+                    </Button>
+                  </div>
+                </>
+              )}
             </>
           )}
 
@@ -398,6 +426,15 @@ export default function MemberDetail() {
           )}
         </div>
       </Modal>
+      <AddDeviceWizard
+        open={showAddDevice}
+        branchId={member.branchId}
+        onClose={() => setShowAddDevice(false)}
+        onDeviceOnline={() => {
+          void qc.invalidateQueries({ queryKey: ['access-devices', member.branchId] });
+          setShowEnroll(true);
+        }}
+      />
     </Layout>
   );
 }

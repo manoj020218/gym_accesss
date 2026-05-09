@@ -11,8 +11,9 @@ import AccessMonitor from './pages/AccessMonitor';
 import Billing     from './pages/Billing/index';
 import StaffList   from './pages/Staff/index';
 import ProductsList from './pages/Products/index';
-import Reports     from './pages/Reports';
-import Settings    from './pages/Settings';
+import Reports      from './pages/Reports';
+import Settings     from './pages/Settings';
+import Diagnostics  from './pages/Diagnostics';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -34,7 +35,8 @@ export default function App() {
         <Route path="/staff" element={<RequireAuth><StaffList /></RequireAuth>} />
         <Route path="/products" element={<RequireAuth><ProductsList /></RequireAuth>} />
         <Route path="/reports" element={<RequireAuth><Reports /></RequireAuth>} />
-        <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+        <Route path="/settings"     element={<RequireAuth><Settings />    </RequireAuth>} />
+        <Route path="/diagnostics"  element={<RequireAuth><Diagnostics /> </RequireAuth>} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
