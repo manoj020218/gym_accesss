@@ -4,6 +4,7 @@ import type { EdgeDB } from '../db/sqlite.js';
 import { config }      from '../config.js';
 import { randomUUID }  from 'crypto';
 import type { BaseLogger } from 'pino';
+import { U5Adapter }   from '../hardware/u5/index.js';
 
 function getLanIp(): string | undefined {
   for (const iface of Object.values(networkInterfaces())) {
@@ -106,6 +107,87 @@ export async function heartbeat(db: EdgeDB, log: BaseLogger): Promise<void> {
   log.debug('[sync] Heartbeat sent');
 }
 
+// ── U5 attendance polling — imports face-scan events from machine into our queue ──
+export async function syncU5Attendance(db: EdgeDB, log: BaseLogger): Promise<void> {
+  if (!config.U5_MACHINE_IP) return;
+
+  const u5 = new U5Adapter({
+    ip:       config.U5_MACHINE_IP,
+    port:     config.U5_MACHINE_PORT,
+    password: config.U5_MACHINE_PASSWORD,
+  });
+
+  const attResult = await u5.getAttendanceLogs();
+  if (!attResult.success) {
+    log.debug({ reason: attResult.message }, '[u5-att] Attendance fetch skipped');
+    return;
+  }
+
+  const records = attResult.data;
+  if (records.length === 0) return;
+
+  // Last imported timestamp — skip records already processed
+  const lastSyncStr = db.getDeviceConfig('u5_att_last_sync');
+  const lastSync    = lastSyncStr ? new Date(lastSyncStr) : new Date(0);
+
+  // Build userId → id_number map for records that don't carry id_number
+  const needsMap = records.some(r => !r.id_number);
+  const userIdToCode = new Map<string, string>();
+  if (needsMap) {
+    const empResult = await u5.getEmployeeList();
+    if (empResult.success) {
+      for (const emp of empResult.data) {
+        if (emp.id_number) userIdToCode.set(emp.userId, emp.id_number);
+      }
+    }
+  }
+
+  let imported = 0;
+  let latestTime = lastSync;
+
+  for (const rec of records) {
+    const eventTime = new Date(rec.time);
+    if (isNaN(eventTime.getTime())) continue;
+    if (eventTime <= lastSync) continue;
+
+    const memberCode = rec.id_number ?? userIdToCode.get(rec.userId);
+    if (!memberCode) continue;
+
+    const member = db.getMemberByCode(memberCode);
+    if (!member) continue;
+
+    // Deterministic ID — prevents duplicate imports across restarts
+    const eventId = `u5att_${rec.userId}_${eventTime.getTime()}`;
+
+    try {
+      db.appendEvent({
+        eventId,
+        deviceId:       config.EDGE_DEVICE_ID,
+        branchId:       config.EDGE_BRANCH_ID,
+        zone:           'main_entry',
+        subjectType:    'member',
+        subjectId:      member.memberId,
+        subjectName:    member.memberCode,
+        decision:       'ALLOW',
+        identifierUsed: 'face',
+        eventTime:      eventTime.toISOString(),
+      });
+      imported++;
+      if (eventTime > latestTime) latestTime = eventTime;
+    } catch {
+      // UNIQUE constraint — record already queued, safe to ignore
+    }
+  }
+
+  if (latestTime > lastSync) {
+    db.setDeviceConfig('u5_att_last_sync', latestTime.toISOString());
+  }
+
+  if (imported > 0) {
+    log.info({ imported }, '[u5-att] Imported attendance records from U5');
+  }
+}
+
 // ── Start sync loop ───────────────────────────────────────────────────────────
 export function startSyncWorker(db: EdgeDB, log: BaseLogger): void {
   // Fire immediately on startup so edgeServiceIp is registered before first enrollment attempt
@@ -114,6 +196,7 @@ export function startSyncWorker(db: EdgeDB, log: BaseLogger): void {
 
   // Sync interval
   setInterval(async () => {
+    try { await syncU5Attendance(db, log); } catch (e) { log.debug(e, '[u5-att] Sync failed'); }
     try { await push(db, log); } catch (e) { log.warn(e, '[sync] Push failed'); }
     try { await pull(db, log); } catch (e) { log.warn(e, '[sync] Pull failed'); }
   }, config.EDGE_SYNC_INTERVAL_MS);

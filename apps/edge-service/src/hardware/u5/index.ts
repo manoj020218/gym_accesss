@@ -137,6 +137,40 @@ export class U5Adapter {
       : { success: false, code: data.code, message: `U5 delete failed (code ${data.code})` };
   }
 
+  /**
+   * Fetch attendance records from the U5 machine.
+   * Each record represents a face-scan door event.
+   * Returns records newest-first; caller should filter by time to avoid re-importing.
+   */
+  async getAttendanceLogs(): Promise<{
+    success: true;
+    data: Array<{ userId: string; time: string; type?: string | number; id_number?: string }>;
+  } | { success: false; code: number; message: string }> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.base}/getAttRecord`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password: this.password }),
+        signal:  AbortSignal.timeout(this.timeout),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Network error reaching U5';
+      return { success: false, code: 0, message: msg };
+    }
+
+    if (!res.ok) return { success: false, code: res.status, message: `U5 HTTP ${res.status}` };
+
+    const data = await res.json() as {
+      code?: number;
+      data?: Array<{ userId: string; time: string; type?: string | number; id_number?: string }>;
+    };
+    if (data.code !== undefined && data.code !== U5_CODE_OK) {
+      return { success: false, code: data.code, message: `U5 attendance failed (code ${data.code})` };
+    }
+    return { success: true, data: data.data ?? [] };
+  }
+
   /** Quick reachability check — returns true if U5 web UI responds. */
   async ping(): Promise<boolean> {
     try {

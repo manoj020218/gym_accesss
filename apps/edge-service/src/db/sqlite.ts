@@ -31,6 +31,20 @@ export class EdgeDB {
     return row ? this.rowToMember(row) : undefined;
   }
 
+  getMemberByCode(memberCode: string): EdgeMemberRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM local_members WHERE member_code = ?').get(memberCode) as Record<string, unknown> | undefined;
+    return row ? this.rowToMember(row) : undefined;
+  }
+
+  getDeviceConfig(key: string): string | undefined {
+    const row = this.db.prepare('SELECT value FROM local_device_config WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  setDeviceConfig(key: string, value: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO local_device_config (key, value) VALUES (?, ?)').run(key, value);
+  }
+
   // ── Staff lookup ──────────────────────────────────────────────────────────
   getStaffByRfid(rfidCardId: string): EdgeStaffRecord | undefined {
     const row = this.db.prepare('SELECT * FROM local_staff WHERE rfid_card_id = ?').get(rfidCardId) as Record<string, unknown> | undefined;
