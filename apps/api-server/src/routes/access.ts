@@ -420,6 +420,51 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // GET /access-devices/:deviceCode/stranger-logs — fetch unregistered face attempts (type:1) from U5
+  fastify.get<{ Params: { deviceCode: string } }>(
+    '/access-devices/:deviceCode/stranger-logs',
+    async (req, reply) => {
+      const device = await AccessDevice.findOne({ deviceCode: req.params.deviceCode, isActive: true });
+      if (!device?.ipAddress) {
+        return reply.status(404).send({ error: 'Device not found or no IP configured' });
+      }
+
+      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+      const password   = device.machinePassword ?? '123456';
+
+      try {
+        const r = await fetch(`${machineUrl}/getWorkNoteList`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, type: 1 }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) return reply.status(502).send({ error: `Machine responded with HTTP ${r.status}` });
+
+        const raw = await r.text();
+        req.log.info({ endpoint: '/getWorkNoteList?type=1', raw }, '[u5] stranger-logs response');
+
+        const d = JSON.parse(raw) as {
+          code?: number;
+          data?: Array<{ userId: string | number; name?: string; time: string; pic?: string }>;
+        };
+
+        if (d.code !== undefined && d.code !== 200) {
+          return reply.status(502).send({ error: `Machine error code ${d.code}` });
+        }
+
+        const all      = d.data ?? [];
+        const strangers = all.filter(e => String(e.userId) === '-1' || e.name === 'stranger');
+
+        return reply.send({ total: strangers.length, data: strangers });
+      } catch (e) {
+        return reply.status(503).send({
+          error: 'Cannot reach machine',
+          hint:  `${machineUrl} — ${(e as Error).message}`,
+        });
+      }
+    },
+  );
+
   // POST /access-devices/:deviceCode/fast-connect
   // Tries specified port first, then auto-scans common ports if that fails.
   // Returns either success or a list of reachable ports so the user can pick the right one.

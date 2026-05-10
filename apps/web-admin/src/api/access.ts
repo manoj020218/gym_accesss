@@ -105,6 +105,14 @@ export const accessApi = {
       .then((r) => r.data)
       .catch(() => null),
 
+  strangerLogs: (deviceId: string) =>
+    api
+      .get<{ total: number; data: Array<{ userId: string | number; name?: string; time: string; pic?: string }> }>(
+        `/access-devices/${deviceId}/stranger-logs`,
+      )
+      .then((r) => r.data)
+      .catch(() => ({ total: 0, data: [] as Array<{ userId: string | number; name?: string; time: string; pic?: string }> })),
+
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;
     step: string; confirmedValue?: string; metadata?: Record<string, unknown>;
