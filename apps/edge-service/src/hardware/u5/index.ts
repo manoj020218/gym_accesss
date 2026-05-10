@@ -138,9 +138,10 @@ export class U5Adapter {
   }
 
   /**
-   * Fetch attendance records from the U5 machine.
-   * Each record represents a face-scan door event.
-   * Returns records newest-first; caller should filter by time to avoid re-importing.
+   * Fetch punch records from the U5 machine.
+   * Endpoint: POST /getWorkNoteList  — body: {password, type: 2}
+   * type=2 selects face-recognition records.
+   * Each record represents one door access event.
    */
   async getAttendanceLogs(): Promise<{
     success: true;
@@ -148,10 +149,10 @@ export class U5Adapter {
   } | { success: false; code: number; message: string }> {
     let res: Response;
     try {
-      res = await fetch(`${this.base}/getAttRecord`, {
+      res = await fetch(`${this.base}/getWorkNoteList`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ password: this.password }),
+        body:    JSON.stringify({ password: this.password, type: 2 }),
         signal:  AbortSignal.timeout(this.timeout),
       });
     } catch (err) {

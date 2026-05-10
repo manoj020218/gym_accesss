@@ -280,34 +280,28 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
       const password   = device.machinePassword ?? '123456';
 
-      // 1. Fetch attendance records — try several endpoint names; firmware varies
-      const ATT_ENDPOINTS = ['/getAttRecord', '/getAttLogs', '/getAttendanceLogs', '/getCheckInRecord'];
+      // 1. Fetch punch records from U5 machine
+      //    Endpoint: POST /getWorkNoteList  body: {password, type: 2}
+      //    type=2 selects face-recognition punch records
       let attRecords: Array<{ userId: string; time: string; id_number?: string }> = [];
-      let attEndpointFound = false;
-      const triedErrors: string[] = [];
-
-      for (const ep of ATT_ENDPOINTS) {
-        try {
-          const r = await fetch(`${machineUrl}${ep}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password }), signal: AbortSignal.timeout(6_000),
-          });
-          if (!r.ok) { triedErrors.push(`${ep} → HTTP ${r.status}`); continue; }
-          const d = await r.json() as { code?: number; data?: typeof attRecords };
-          if (d.code !== undefined && d.code !== 200) { triedErrors.push(`${ep} → code ${d.code}`); continue; }
-          attRecords = d.data ?? [];
-          attEndpointFound = true;
-          break;
-        } catch (e) {
-          triedErrors.push(`${ep} → ${(e as Error).message}`);
+      try {
+        const r = await fetch(`${machineUrl}/getWorkNoteList`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, type: 2 }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) {
+          return reply.status(502).send({ error: `Machine responded with HTTP ${r.status}` });
         }
-      }
-
-      if (!attEndpointFound) {
-        return reply.status(502).send({
-          error: 'Attendance endpoint not found on this machine firmware',
-          hint:  `Open the machine web UI (${machineUrl}), navigate to the attendance / records section, open browser DevTools → Network tab, and note the request URL. Share that endpoint name to add it here.`,
-          tried: triedErrors,
+        const d = await r.json() as { code?: number; data?: typeof attRecords };
+        if (d.code !== undefined && d.code !== 200) {
+          return reply.status(502).send({ error: `Machine error code ${d.code}` });
+        }
+        attRecords = d.data ?? [];
+      } catch (e) {
+        return reply.status(503).send({
+          error: 'Cannot reach machine',
+          hint:  `Check that ${machineUrl} is accessible from this server. Error: ${(e as Error).message}`,
         });
       }
 
