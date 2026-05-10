@@ -242,7 +242,9 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        const u5Data = await u5Res.json() as { code: number; userId?: string };
+        const u5Raw  = await u5Res.text();
+        req.log.info({ endpoint: '/insertEmployee', raw: u5Raw }, '[u5] insertEmployee response');
+        const u5Data = JSON.parse(u5Raw) as { code: number; userId?: string };
         if (u5Data.code !== 200) {
           const hint = u5Data.code === 12
             ? 'Face too similar to an existing member — try a different photo'

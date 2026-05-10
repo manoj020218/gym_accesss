@@ -259,7 +259,9 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
         if (!res.ok) return reply.status(502).send({ error: `Machine responded with HTTP ${res.status}` });
 
-        const data = await res.json() as { data?: Array<{ userId: string; name: string; id_number?: string }> };
+        const raw  = await res.text();
+        req.log.info({ endpoint: '/getEmployeeList', raw }, '[u5] getEmployeeList response');
+        const data = JSON.parse(raw) as { data?: Array<{ userId: string; name: string; id_number?: string }> };
         return reply.send({ employees: data.data ?? [] });
       } catch (err) {
         const isTimeout = err instanceof Error && err.name === 'TimeoutError';
@@ -293,7 +295,9 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         if (!r.ok) {
           return reply.status(502).send({ error: `Machine responded with HTTP ${r.status}` });
         }
-        const d = await r.json() as { code?: number; data?: typeof attRecords };
+        const raw = await r.text();
+        req.log.info({ endpoint: '/getWorkNoteList', raw }, '[u5] getWorkNoteList response');
+        const d = JSON.parse(raw) as { code?: number; data?: typeof attRecords };
         if (d.code !== undefined && d.code !== 200) {
           return reply.status(502).send({ error: `Machine error code ${d.code}` });
         }
@@ -382,7 +386,9 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
           signal: AbortSignal.timeout(10_000),
         });
         if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
-        const d = await r.json() as { data?: typeof machineEmployees };
+        const raw = await r.text();
+        req.log.info({ endpoint: '/getEmployeeList', raw }, '[u5] sync-status getEmployeeList response');
+        const d = JSON.parse(raw) as { data?: typeof machineEmployees };
         machineEmployees = d.data ?? [];
       } catch {
         return reply.status(503).send({ error: 'Cannot reach machine' });
