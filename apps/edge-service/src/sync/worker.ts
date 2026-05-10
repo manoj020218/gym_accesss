@@ -1,8 +1,18 @@
 import { createHmac }  from 'crypto';
+import { networkInterfaces } from 'node:os';
 import type { EdgeDB } from '../db/sqlite.js';
 import { config }      from '../config.js';
 import { randomUUID }  from 'crypto';
 import type { BaseLogger } from 'pino';
+
+function getLanIp(): string | undefined {
+  for (const iface of Object.values(networkInterfaces())) {
+    for (const addr of (iface ?? [])) {
+      if (addr.family === 'IPv4' && !addr.internal) return addr.address;
+    }
+  }
+  return undefined;
+}
 
 const BASE = config.EDGE_SYNC_BASE_URL;
 
@@ -83,12 +93,14 @@ export async function heartbeat(db: EdgeDB, log: BaseLogger): Promise<void> {
   await apiFetch('/heartbeat', {
     method: 'POST',
     body: JSON.stringify({
-      edgeDeviceId: config.EDGE_DEVICE_ID,
-      branchId:     config.EDGE_BRANCH_ID,
-      localTime:    new Date().toISOString(),
-      syncLag:      0,
+      edgeDeviceId:    config.EDGE_DEVICE_ID,
+      branchId:        config.EDGE_BRANCH_ID,
+      localTime:       new Date().toISOString(),
+      syncLag:         0,
       pendingEventCount: pending,
-      uptime: Math.floor(process.uptime()),
+      uptime:          Math.floor(process.uptime()),
+      edgeServiceIp:   getLanIp(),
+      edgeServicePort: config.EDGE_PORT,
     }),
   });
   log.debug('[sync] Heartbeat sent');
@@ -96,8 +108,9 @@ export async function heartbeat(db: EdgeDB, log: BaseLogger): Promise<void> {
 
 // ── Start sync loop ───────────────────────────────────────────────────────────
 export function startSyncWorker(db: EdgeDB, log: BaseLogger): void {
-  // Initial pull
+  // Fire immediately on startup so edgeServiceIp is registered before first enrollment attempt
   void pull(db, log).catch(e => log.warn(e, '[sync] Initial pull failed'));
+  void heartbeat(db, log).catch(e => log.warn(e, '[sync] Initial heartbeat failed'));
 
   // Sync interval
   setInterval(async () => {

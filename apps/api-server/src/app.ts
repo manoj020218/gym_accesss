@@ -23,6 +23,7 @@ import memberPlanRoutes   from './routes/member-plans.js';
 
 export async function buildApp() {
   const fastify = Fastify({
+    bodyLimit: 10 * 1024 * 1024, // 10 MB — allows face photo base64 payloads
     logger: {
       level:     config.LOG_LEVEL,
       transport: config.NODE_ENV === 'development'

@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { EdgeDB } from './db/sqlite.js';
 import { decide } from './access/decision.js';
 import { startSyncWorker } from './sync/worker.js';
+import { U5Adapter } from './hardware/u5/index.js';
 import { Zone, AccessDecision } from '@edge-gym/shared-types';
 import { z } from 'zod';
 
@@ -43,25 +44,80 @@ async function main() {
     return reply.status(result.decision === AccessDecision.Allow ? 200 : 403).send(result);
   });
 
-  // Face enrollment — triggered by cloud API or admin UI on same LAN
-  // In production: call hardware SDK here to open camera and capture biometric,
-  // then link captured face to memberCode as the unique identity key on the device.
-  app.post<{ Body: { memberId: string; memberCode: string } }>('/enroll-face', async (req, reply) => {
-    const { memberId, memberCode } = req.body ?? {};
-    if (!memberId || !memberCode) {
-      return reply.status(400).send({ success: false, message: 'memberId and memberCode required' });
+  // Face enrollment — cloud API forwards admin's request here; we call the U5 machine.
+  //   upload  — imageBase64 provided; we POST it to U5 /insertEmployee
+  //   capture — live camera mode (not supported by U5 web API; instruct admin to use upload)
+  app.post<{ Body: { memberId: string; memberCode: string; imageBase64?: string; mode?: string; memberName?: string; cardNumber?: string } }>(
+    '/enroll-face',
+    async (req, reply) => {
+      const {
+        memberId, memberCode, imageBase64,
+        mode = imageBase64 ? 'upload' : 'capture',
+        memberName, cardNumber,
+      } = req.body ?? {};
+
+      if (!memberId || !memberCode) {
+        return reply.status(400).send({ success: false, message: 'memberId and memberCode required' });
+      }
+
+      app.log.info({ memberId, memberCode, mode, hasImage: !!imageBase64 }, 'Face enrollment triggered');
+
+      if (!config.U5_MACHINE_IP) {
+        app.log.warn('U5_MACHINE_IP not configured — returning simulated success');
+        return reply.send({ success: true, memberId, memberCode, mode, message: 'Simulated (no hardware IP configured)' });
+      }
+
+      const u5 = new U5Adapter({
+        ip:       config.U5_MACHINE_IP,
+        port:     config.U5_MACHINE_PORT,
+        password: config.U5_MACHINE_PASSWORD,
+      });
+
+      if (mode === 'upload') {
+        if (!imageBase64) {
+          return reply.status(400).send({ success: false, message: 'imageBase64 required for upload mode' });
+        }
+        // U5 expects a full data URL
+        const picLarge = imageBase64.startsWith('data:')
+          ? imageBase64
+          : `data:image/jpeg;base64,${imageBase64}`;
+
+        const result = await u5.enrollFace({
+          idNumber:   memberCode,
+          name:       (memberName ?? memberCode).slice(0, 10),
+          picLarge,
+          cardNumber,
+        });
+
+        if (!result.success) {
+          app.log.warn({ memberCode, code: result.code, message: result.message }, 'U5 enrollment failed');
+          return reply.status(422).send({ success: false, message: result.message });
+        }
+
+        app.log.info({ memberCode }, 'U5 face enrolled successfully');
+        return reply.send({ success: true, memberId, memberCode, mode, message: 'Face registered on U5 device' });
+      }
+
+      // Capture mode: U5's /insertEmployee always needs a pre-supplied photo
+      return reply.status(501).send({
+        success: false,
+        message: 'Live capture not supported by U5 web API — please upload a photo instead',
+      });
+    },
+  );
+
+  // GET /u5/employees — proxy getEmployeeList from the U5 machine
+  app.get('/u5/employees', async (_req, reply) => {
+    if (!config.U5_MACHINE_IP) {
+      return reply.send({ data: [], simulated: true });
     }
-
-    app.log.info({ memberId, memberCode }, 'Face enrollment triggered — hardware integration point');
-
-    // TODO: call device SDK  e.g.  await faceDevice.startEnrollment(memberCode)
-    // For now return simulated success so the UI flow is fully testable.
-    return reply.send({
-      success:    true,
-      memberId,
-      memberCode,
-      message:    `Face enrolled on device and linked to ID: ${memberCode}`,
-    });
+    const u5 = new U5Adapter({ ip: config.U5_MACHINE_IP, port: config.U5_MACHINE_PORT, password: config.U5_MACHINE_PASSWORD });
+    const result = await u5.getEmployeeList();
+    if (!result.success) {
+      return reply.status(502).send({ error: result.message });
+    }
+    // Strip pic_large from list response — it's large and not needed for sync checks
+    return reply.send({ data: result.data.map(({ userId, name, id_number }) => ({ userId, name, id_number })) });
   });
 
   // Sync status

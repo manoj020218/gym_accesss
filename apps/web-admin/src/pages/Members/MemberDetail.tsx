@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../../components/layout/Layout';
@@ -30,7 +30,11 @@ export default function MemberDetail() {
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [blockReason, setBlockReason]     = useState('');
   const [enrollStep, setEnrollStep]       = useState<'idle'|'scanning'|'success'|'error'>('idle');
-  const [enrollResult, setEnrollResult]   = useState<{ memberCode: string } | null>(null);
+  const [enrollResult, setEnrollResult]   = useState<{ memberCode: string; mode?: string; message?: string } | null>(null);
+  const [enrollMode, setEnrollMode]       = useState<'choose'|'upload'|'capture'>('choose');
+  const [uploadImage, setUploadImage]     = useState<{ base64: string; previewUrl: string } | null>(null);
+  const [enrollErrorMsg, setEnrollErrorMsg] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: member, isLoading } = useQuery({
     queryKey: ['member', id],
@@ -52,17 +56,52 @@ export default function MemberDetail() {
 
   const { data: events } = useQuery({
     queryKey: ['events-member', id],
-    queryFn:  () => accessApi.events({ limit: 20 }),
+    queryFn:  () => accessApi.events({ memberId: id, limit: 30 }),
     enabled:  !!id && tab === 'access',
+    refetchInterval: tab === 'access' ? 8000 : false,
   });
 
-  const { data: devices = [], isLoading: devicesLoading } = useQuery({
+  const { data: devices = [], isLoading: devicesLoading, refetch: refetchDevices } = useQuery({
     queryKey: ['access-devices', member?.branchId],
     queryFn:  () => accessApi.devices(member?.branchId),
-    enabled:  showEnroll && !!member?.branchId,
+    enabled:  (showEnroll || tab === 'access') && !!member?.branchId,
     refetchInterval: showEnroll ? 8000 : false,
   });
-  const deviceOnline = devices.some((d) => d.isOnline);
+  const deviceOnline  = devices.some((d) => d.isOnline);
+  const offlineDevice = devices.find((d) => !d.isOnline);
+
+  const firstDevice = devices[0];
+  const { data: u5Sync } = useQuery({
+    queryKey: ['u5-employees', firstDevice?.deviceId],
+    queryFn:  () => accessApi.u5Employees(firstDevice!.deviceId),
+    enabled:  tab === 'access' && !!firstDevice?.deviceId && !!member?.faceEnrolled,
+    staleTime: 60_000,
+  });
+  const u5HasMember = u5Sync?.employees.some(
+    (e) => e.id_number === member?.memberCode,
+  );
+
+  const [pingIp, setPingIp]       = useState('');
+  const [pingError, setPingError] = useState('');
+
+  const pingMut = useMutation({
+    mutationFn: () => {
+      const ip = pingIp.trim() || offlineDevice?.ipAddress || '';
+      if (!ip) throw new Error('Enter the machine IP address');
+      return accessApi.ping(offlineDevice!.deviceId, ip);
+    },
+    onSuccess: () => {
+      setPingError('');
+      void refetchDevices();
+    },
+    onError: (err: unknown) => {
+      const hint = (err as { response?: { data?: { hint?: string; error?: string } } })
+        ?.response?.data?.hint
+        ?? (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? 'Could not reach the device at that IP.';
+      setPingError(hint);
+    },
+  });
 
   const blockMut = useMutation({
     mutationFn: () => memberApi.block(id!, blockReason),
@@ -90,13 +129,22 @@ export default function MemberDetail() {
   });
 
   const enrollMut = useMutation({
-    mutationFn: () => memberApi.enrollFace(id!),
+    mutationFn: () =>
+      memberApi.enrollFace(id!, enrollMode === 'upload' && uploadImage
+        ? { imageBase64: uploadImage.base64, mode: 'upload' }
+        : { mode: 'capture' }),
     onSuccess: (data) => {
-      setEnrollResult({ memberCode: data.memberCode });
+      setEnrollResult({ memberCode: data.memberCode, mode: data.mode, message: data.message });
       setEnrollStep('success');
       void qc.invalidateQueries({ queryKey: ['member', id] });
     },
-    onError: () => setEnrollStep('error'),
+    onError: (err: unknown) => {
+      const hint = (err as { response?: { data?: { hint?: string } } })?.response?.data?.hint
+        ?? (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        ?? 'Could not reach the edge device or enrollment was rejected.';
+      setEnrollErrorMsg(hint);
+      setEnrollStep('error');
+    },
   });
 
   const handleStartEnroll = () => {
@@ -104,10 +152,31 @@ export default function MemberDetail() {
     enrollMut.mutate();
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 640;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      setUploadImage({ base64: dataUrl.split(',')[1] ?? '', previewUrl });
+    };
+    img.src = previewUrl;
+  };
+
   const handleCloseEnroll = () => {
     setShowEnroll(false);
     setEnrollStep('idle');
     setEnrollResult(null);
+    setEnrollMode('choose');
+    setUploadImage(null);
+    setEnrollErrorMsg('');
   };
 
   if (isLoading) return <Layout title="Member"><PageSpinner /></Layout>;
@@ -159,13 +228,26 @@ export default function MemberDetail() {
               { label: 'Branch', value: member.branchId },
               { label: 'Member since', value: fmtDate(member.createdAt) },
               { label: 'RFID', value: member.rfidCardId ?? 'Not assigned' },
-              { label: 'Face ID', value: member.faceEnrolled ? 'Enrolled ✓' : 'Not enrolled' },
             ].map(({ label, value }) => (
               <div key={label} className="flex justify-between">
                 <span className="text-muted text-xs">{label}</span>
                 <span className="text-slate-300 text-xs font-medium">{value}</span>
               </div>
             ))}
+            {/* Face / Access status */}
+            <div className="flex justify-between items-center pt-1">
+              <span className="text-muted text-xs">Access</span>
+              {member.faceEnrolled ? (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Access Active
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-500/10 text-slate-500 border border-slate-600/20">
+                  Not Enrolled
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
@@ -198,7 +280,22 @@ export default function MemberDetail() {
 
           <div className="p-5">
             {tab === 'access' && (
-              <div className="flex justify-end mb-3">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[11px] text-muted">Live · refreshes every 8s</span>
+                  {/* U5 sync warning */}
+                  {member.faceEnrolled && u5Sync && !u5HasMember && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-900/30 text-amber-400 border border-amber-500/20">
+                      ⚠ Not found on machine — re-enroll
+                    </span>
+                  )}
+                  {member.faceEnrolled && u5HasMember && (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-900/20 text-emerald-400 border border-emerald-500/20">
+                      ✓ Confirmed on machine
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => { setShowEnroll(true); setEnrollStep('idle'); }}
                   title="Enroll Face on Device"
@@ -336,12 +433,40 @@ export default function MemberDetail() {
                 <>
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-red-500/40 text-red-300 bg-red-900/20">
                     <span className="w-2 h-2 rounded-full bg-red-500" />
-                    Device Offline
+                    Last heartbeat not received
                   </div>
                   <div className="text-center">
                     <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
-                    <p className="text-xs text-red-400">The access machine is not reachable. Power it on and wait for it to check in — this modal refreshes automatically.</p>
+                    <p className="text-xs text-muted">No recent check-in from the machine. If it's powered on, verify it now:</p>
                   </div>
+
+                  {/* Quick verify by IP */}
+                  <div className="w-full space-y-2">
+                    <div className="flex gap-2">
+                      <input
+                        className="flex-1 bg-white/[0.05] border border-white/10 rounded-xl px-3 py-2 text-sm text-slate-200 placeholder:text-muted outline-none focus:border-purple-500/50 font-mono"
+                        placeholder={offlineDevice?.ipAddress ?? '192.168.1.201'}
+                        value={pingIp}
+                        onChange={(e) => { setPingIp(e.target.value); setPingError(''); }}
+                      />
+                      <Button
+                        size="sm"
+                        loading={pingMut.isPending}
+                        onClick={() => pingMut.mutate()}
+                      >
+                        Verify
+                      </Button>
+                    </div>
+                    {pingError && (
+                      <p className="text-[11px] text-red-400 px-1">{pingError}</p>
+                    )}
+                    {offlineDevice?.ipAddress && !pingIp && (
+                      <p className="text-[11px] text-muted px-1">
+                        Last known IP: <span className="font-mono text-slate-400">{offlineDevice.ipAddress}</span> — leave blank to use it
+                      </p>
+                    )}
+                  </div>
+
                   <div className="flex gap-3">
                     <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
                     <Button disabled>Start Enrollment</Button>
@@ -360,16 +485,109 @@ export default function MemberDetail() {
                     <span className={`w-2 h-2 rounded-full ${devicesLoading ? 'bg-slate-500 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
                     {devicesLoading ? 'Checking device…' : 'Device Online'}
                   </div>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-slate-200 mb-1">Enroll Face for {name}</p>
-                    <p className="text-xs text-muted">This will signal the edge device to open the camera and capture the member's face, linking it to their member ID.</p>
-                  </div>
-                  <div className="flex gap-3">
-                    <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
-                    <Button onClick={handleStartEnroll} disabled={devicesLoading || !deviceOnline}>
-                      Start Enrollment
-                    </Button>
-                  </div>
+                  <p className="text-sm font-semibold text-slate-200">Enroll Face for {name}</p>
+
+                  {/* Choose enrollment method */}
+                  {enrollMode === 'choose' && (
+                    <>
+                      <div className="w-full grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => setEnrollMode('upload')}
+                          disabled={devicesLoading || !deviceOnline}
+                          className="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-purple-500/10 hover:border-purple-500/40 transition-all disabled:opacity-40"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-7 h-7 text-purple-400">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                          </svg>
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-slate-200">Upload Photo</p>
+                            <p className="text-[11px] text-muted mt-0.5">Use a desktop photo</p>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => setEnrollMode('capture')}
+                          disabled={devicesLoading || !deviceOnline}
+                          className="flex flex-col items-center gap-2.5 p-4 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all disabled:opacity-40"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-7 h-7 text-emerald-400">
+                            <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                            <circle cx="12" cy="13" r="4"/>
+                          </svg>
+                          <div className="text-center">
+                            <p className="text-xs font-semibold text-slate-200">Capture at Machine</p>
+                            <p className="text-[11px] text-muted mt-0.5">Member faces the camera</p>
+                          </div>
+                        </button>
+                      </div>
+                      <Button variant="outline" onClick={handleCloseEnroll}>Cancel</Button>
+                    </>
+                  )}
+
+                  {/* Upload photo flow */}
+                  {enrollMode === 'upload' && (
+                    <div className="w-full space-y-3">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+                      {uploadImage ? (
+                        <div className="flex flex-col items-center gap-3">
+                          <img
+                            src={uploadImage.previewUrl}
+                            alt="Face preview"
+                            className="w-28 h-28 rounded-2xl object-cover border-2 border-purple-500/40"
+                          />
+                          <button
+                            onClick={() => { setUploadImage(null); fileInputRef.current?.click(); }}
+                            className="text-[11px] text-muted hover:text-slate-300 transition-colors"
+                          >
+                            Change photo
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full flex flex-col items-center gap-2 py-6 rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-muted">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                          </svg>
+                          <p className="text-xs text-muted">Click to select a clear face photo</p>
+                        </button>
+                      )}
+                      <div className="flex gap-3">
+                        <Button variant="outline" onClick={() => { setEnrollMode('choose'); setUploadImage(null); }}>Back</Button>
+                        <Button
+                          onClick={handleStartEnroll}
+                          disabled={!uploadImage}
+                          className="flex-1 justify-center"
+                        >
+                          Enroll with Photo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Capture at machine flow — U5 requires a pre-supplied photo */}
+                  {enrollMode === 'capture' && (
+                    <div className="w-full space-y-3">
+                      <div className="p-3 bg-amber-900/20 border border-amber-500/20 rounded-xl text-xs text-amber-300 text-center leading-relaxed">
+                        The U5 machine requires a photo to be uploaded — it does not support live capture via the web API.
+                        Please go back and use <strong>Upload Photo</strong> instead.
+                      </div>
+                      <div className="flex gap-3">
+                        <Button variant="outline" onClick={() => setEnrollMode('choose')}>Back</Button>
+                        <Button variant="outline" onClick={() => setEnrollMode('upload')} className="flex-1 justify-center">
+                          Switch to Upload Photo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -398,9 +616,16 @@ export default function MemberDetail() {
                 </svg>
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-emerald-300 mb-1">Face Enrolled Successfully</p>
+                <p className="text-sm font-semibold text-emerald-300 mb-1">
+                  {enrollResult?.mode === 'upload' ? 'Face Photo Registered' : 'Enrollment Signal Sent'}
+                </p>
                 {enrollResult && (
-                  <p className="text-xs text-muted">Linked to member ID: <span className="font-mono text-slate-300">{enrollResult.memberCode}</span></p>
+                  <>
+                    <p className="text-xs text-muted">{enrollResult.message ?? `Linked to member ID: ${enrollResult.memberCode}`}</p>
+                    {enrollResult.mode === 'capture' && (
+                      <p className="text-[11px] text-amber-400 mt-2">Ask the member to face the device camera now.</p>
+                    )}
+                  </>
                 )}
               </div>
               <Button onClick={handleCloseEnroll}>Done</Button>
@@ -416,11 +641,11 @@ export default function MemberDetail() {
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-red-300 mb-1">Enrollment Failed</p>
-                <p className="text-xs text-muted">Could not reach the edge device or enrollment was rejected. Please try again.</p>
+                <p className="text-xs text-muted">{enrollErrorMsg || 'Could not reach the edge device or enrollment was rejected.'}</p>
               </div>
               <div className="flex gap-3">
                 <Button variant="outline" onClick={handleCloseEnroll}>Close</Button>
-                <Button onClick={handleStartEnroll}>Retry</Button>
+                <Button onClick={() => { setEnrollStep('idle'); setEnrollErrorMsg(''); }}>Retry</Button>
               </div>
             </>
           )}

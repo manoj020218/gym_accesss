@@ -150,7 +150,12 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
   const [selectedIp, setSelectedIp] = useState('');
   const [customIp, setCustomIp]     = useState('');
 
-  // Fast-connect form state
+  // Machine connect form state (waiting step)
+  const [machineIp, setMachineIp]   = useState('');
+  const [machinePwd, setMachinePwd] = useState('123456');
+  const [machineErr, setMachineErr] = useState('');
+  const [machineOk, setMachineOk]   = useState(false);
+  // Fast-connect (edge service) form state — secondary option
   const [showFast, setShowFast]       = useState(false);
   const [fcIp, setFcIp]               = useState('');
   const [fcPort, setFcPort]           = useState('8090');
@@ -158,6 +163,12 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
   const [fcPass, setFcPass]           = useState('123456');
   const [fcSn, setFcSn]               = useState('');
   const [fcError, setFcError]         = useState('');
+  const [fcScanResult, setFcScanResult] = useState<{
+    type: 'wrong-port' | 'device-found' | 'not-found';
+    suggestPort?: number;
+    reachablePorts?: number[];
+    hint: string;
+  } | null>(null);
 
   // Detect server LAN IPs when user reaches that sub-step
   const { data: netInfo } = useQuery({
@@ -223,21 +234,54 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
   const fastConnectMut = useMutation({
     mutationFn: () => {
       if (!creds) throw new Error('No device registered');
+      setFcScanResult(null);
+      setFcError('');
       return accessApi.fastConnect(creds.deviceCode, {
         deviceIp: fcIp.trim(), devicePort: Number(fcPort) || 8090,
         username: fcUser, password: fcPass, sn: fcSn.trim() || undefined,
       });
     },
     onSuccess: (data) => {
-      log('FAST_CONNECT_UI_SUCCESS', data.deviceId, { fcIp, fcPort, fcUser });
+      log('FAST_CONNECT_UI_SUCCESS', data.deviceId, { fcIp, fcPort: data.port ?? fcPort, fcUser });
       void qc.invalidateQueries({ queryKey: ['access-devices', branchId] });
       setStep('done');
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { hint?: string; error?: string } } })?.response?.data?.hint
+      type ErrResp = { foundEdge?: boolean; suggestPort?: number; reachablePorts?: number[]; hint?: string; error?: string };
+      const data = (err as { response?: { data?: ErrResp } })?.response?.data ?? {};
+      const hint = data.hint ?? data.error ?? 'Could not reach the device. Check the IP and try again.';
+
+      if (data.suggestPort) {
+        // Edge service found but on a different port — one-click fix
+        setFcScanResult({ type: 'wrong-port', suggestPort: data.suggestPort, hint });
+      } else if (data.reachablePorts?.length) {
+        // Device is reachable (native web UI) but edge service not started
+        setFcScanResult({ type: 'device-found', reachablePorts: data.reachablePorts, hint });
+      } else {
+        setFcScanResult({ type: 'not-found', hint });
+        setFcError(hint);
+      }
+    },
+  });
+
+  const machinePingMut = useMutation({
+    mutationFn: () => {
+      if (!creds) throw new Error('No device registered');
+      setMachineErr('');
+      return accessApi.ping(creds.deviceCode, machineIp.trim(), 80, machinePwd || '123456');
+    },
+    onSuccess: () => {
+      log('MACHINE_PING_SUCCESS', machineIp.trim(), { port: 80 });
+      setMachineOk(true);
+      void qc.invalidateQueries({ queryKey: ['access-devices', branchId] });
+      setTimeout(() => setStep('done'), 800);
+    },
+    onError: (err: unknown) => {
+      const hint = (err as { response?: { data?: { hint?: string; error?: string } } })
+        ?.response?.data?.hint
         ?? (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        ?? 'Could not reach the device. Check IP and make sure device is on.';
-      setFcError(msg);
+        ?? 'Could not reach the machine. Check the IP and make sure the device is on.';
+      setMachineErr(hint);
     },
   });
 
@@ -245,8 +289,9 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
     setStep('form'); setSubStep('device-id');
     setDevName('Main Entry Scanner');
     setCreds(null); setSelectedIp(''); setCustomIp('');
+    setMachineIp(''); setMachinePwd('123456'); setMachineErr(''); setMachineOk(false);
     setShowFast(false); setFcIp(''); setFcPort('8090');
-    setFcUser('admin'); setFcPass('123456'); setFcSn(''); setFcError('');
+    setFcUser('admin'); setFcPass('123456'); setFcSn(''); setFcError(''); setFcScanResult(null);
     onClose();
   };
 
@@ -458,104 +503,69 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
         </>
       )}
 
-      {/* ═══ Step 3 — Waiting for heartbeat ═════════════════════════════════ */}
+      {/* ═══ Step 3 — Connect machine ════════════════════════════════════════ */}
       {step === 'waiting' && (
-        <div className="space-y-4">
-          {/* Auto-connect spinner */}
-          <div className="flex flex-col items-center gap-4 py-2">
-            <div className="relative w-14 h-14">
-              <div className="absolute inset-0 rounded-full border-2 border-purple-500/20" />
-              <div className="absolute inset-0 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-              <div className="absolute inset-3 rounded-full bg-purple-600/20 flex items-center justify-center">
-                <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-              </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-bold text-slate-100 mb-0.5">Waiting for machine to connect…</p>
-              <p className="text-xs text-muted flex items-center justify-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                Auto-checks every 5 seconds
-              </p>
-            </div>
+        <div className="space-y-5">
+          <div>
+            <p className="text-sm font-bold text-slate-100 mb-1">Connect your machine</p>
+            <p className="text-xs text-muted">Enter the machine's IP and password — shown on its display or label.</p>
           </div>
 
-          {/* Fast Connect toggle */}
-          <div className="border border-white/[0.07] rounded-2xl overflow-hidden">
-            <button
-              onClick={() => { setShowFast((v) => !v); setFcError(''); }}
-              className="w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-white/[0.03] transition-colors"
-            >
-              <div>
-                <p className="text-sm font-semibold text-slate-200">Taking too long?</p>
-                <p className="text-xs text-muted">Enter the machine's IP and connect it now</p>
-              </div>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className={`w-4 h-4 text-muted transition-transform ${showFast ? 'rotate-180' : ''}`}>
-                <polyline points="5 8 10 13 15 8"/>
-              </svg>
-            </button>
-
-            {showFast && (
-              <div className="px-4 pb-5 pt-1 space-y-4 border-t border-white/[0.07]">
-                <p className="text-xs text-slate-400 pt-2">
-                  Fill in the machine's details — found on its display or label. We'll connect instantly.
-                </p>
-
-                {/* IP + Port */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2">
-                    <Input label="Machine IP Address" value={fcIp}
-                      onChange={(e) => { setFcIp(e.target.value); setFcError(''); }}
-                      placeholder="192.168.1.201" />
-                  </div>
-                  <Input label="Port" value={fcPort}
-                    onChange={(e) => setFcPort(e.target.value)}
-                    placeholder="8090" />
-                </div>
-
-                {/* Username + Password */}
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Username" value={fcUser}
-                    onChange={(e) => setFcUser(e.target.value)}
-                    placeholder="admin" />
-                  <Input label="Password" value={fcPass}
-                    onChange={(e) => setFcPass(e.target.value)}
-                    placeholder="123456" />
-                </div>
-
-                {/* SN */}
-                <div>
-                  <Input
-                    label="Serial Number (shown on device display)"
-                    value={fcSn}
-                    onChange={(e) => { setFcSn(e.target.value); setFcError(''); }}
-                    placeholder="e.g. DEV-43E2-ABC123  (optional but recommended)"
-                  />
-                  <p className="text-[11px] text-muted mt-1">
-                    The SN is shown on the machine's screen or printed on its label. It helps confirm you're connecting the right device.
-                  </p>
-                </div>
-
-                {/* Error */}
-                {fcError && (
-                  <div className="flex items-start gap-2 p-3 bg-red-900/20 border border-red-500/20 rounded-xl">
-                    <span className="text-red-400 shrink-0 mt-0.5">✕</span>
-                    <p className="text-xs text-red-300">{fcError}</p>
-                  </div>
-                )}
-
-                <Button
-                  className="w-full justify-center"
-                  loading={fastConnectMut.isPending}
-                  disabled={!fcIp.trim()}
-                  onClick={() => fastConnectMut.mutate()}
-                >
-                  Connect Now →
-                </Button>
-              </div>
-            )}
+          {/* Machine connect form */}
+          <div className="space-y-3">
+            <Input
+              label="Machine IP Address"
+              value={machineIp}
+              onChange={(e) => { setMachineIp(e.target.value); setMachineErr(''); setMachineOk(false); }}
+              placeholder="192.168.1.201"
+              autoFocus
+            />
+            <Input
+              label="Machine Password"
+              value={machinePwd}
+              onChange={(e) => { setMachinePwd(e.target.value); setMachineErr(''); }}
+              placeholder="123456"
+            />
           </div>
 
-          <div className="flex justify-between pt-1">
+          {/* Result feedback */}
+          {machinePingMut.isPending && (
+            <div className="flex items-center gap-2 p-3 bg-purple-900/20 border border-purple-500/20 rounded-xl">
+              <span className="w-3 h-3 rounded-full border-2 border-purple-400 border-t-transparent animate-spin shrink-0" />
+              <p className="text-xs text-purple-300">Reaching machine at {machineIp}…</p>
+            </div>
+          )}
+          {machineOk && (
+            <div className="flex items-center gap-2 p-3 bg-emerald-900/20 border border-emerald-500/20 rounded-xl">
+              <span className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
+                <svg viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" className="w-2.5 h-2.5"><polyline points="10 3 5 9 2 6"/></svg>
+              </span>
+              <p className="text-xs text-emerald-300 font-semibold">Machine connected!</p>
+            </div>
+          )}
+          {machineErr && !machinePingMut.isPending && (
+            <div className="flex items-start gap-2 p-3 bg-red-900/20 border border-red-500/20 rounded-xl">
+              <span className="text-red-400 shrink-0">✕</span>
+              <p className="text-xs text-red-300">{machineErr}</p>
+            </div>
+          )}
+
+          <Button
+            className="w-full justify-center"
+            loading={machinePingMut.isPending}
+            disabled={!machineIp.trim() || machinePingMut.isPending || machineOk}
+            onClick={() => machinePingMut.mutate()}
+          >
+            Connect Machine →
+          </Button>
+
+          {/* Auto-detect fallback */}
+          <div className="flex items-center gap-2 text-xs text-muted pt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
+            Also listening for machine to self-register automatically…
+          </div>
+
+          <div className="flex justify-between pt-1 border-t border-white/[0.06]">
             <Button variant="outline" size="sm" onClick={() => setStep('credentials')}>← Back</Button>
             <Button variant="outline" size="sm" onClick={handleClose}>Cancel</Button>
           </div>

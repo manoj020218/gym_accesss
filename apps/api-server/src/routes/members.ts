@@ -5,6 +5,7 @@ import { Member } from '../models/Member.js';
 import { Membership } from '../models/Membership.js';
 import { MemberStatus, Zone } from '@edge-gym/shared-types';
 import { AuditLog } from '../models/AuditLog.js';
+import { AccessDevice } from '../models/AccessDevice.js';
 
 const emptyToUndefined = z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
 
@@ -174,29 +175,89 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ qrToken, memberId: req.params.id });
   });
 
-  // POST /members/:id/enroll-face — trigger face enrollment on the edge device
-  fastify.post<{ Params: { id: string } }>('/members/:id/enroll-face', async (req, reply) => {
-    const member = await Member.findById(req.params.id);
-    if (!member) return reply.status(404).send({ error: 'Not Found' });
+  // POST /members/:id/enroll-face — upload photo directly to U5 machine via its web API
+  fastify.post<{ Params: { id: string }; Body: { imageBase64?: string } }>(
+    '/members/:id/enroll-face',
+    async (req, reply) => {
+      const member = await Member.findById(req.params.id);
+      if (!member) return reply.status(404).send({ error: 'Not Found' });
 
-    // Mark faceEnrolled = true.
-    // In production: forward to edge service to open camera, then confirm on callback.
-    // The edge service links captured biometric to member.memberCode as unique identity key.
-    await Member.findByIdAndUpdate(req.params.id, { faceEnrolled: true });
+      const { imageBase64 } = (req.body ?? {}) as { imageBase64?: string };
+      if (!imageBase64) {
+        return reply.status(400).send({ error: 'Image required', hint: 'Upload a face photo.' });
+      }
 
-    await AuditLog.create({
-      actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,
-      action: 'FACE_ENROLL', resourceType: 'Member', resourceId: req.params.id,
-      after: { faceEnrolled: true, memberCode: member.memberCode }, ip: req.ip,
-    });
+      const device = await AccessDevice.findOne({
+        branchId: member.branchId,
+        isActive: true,
+        ipAddress: { $exists: true, $ne: null },
+      });
 
-    return reply.send({
-      success:    true,
-      memberId:   member.id as string,
-      memberCode: member.memberCode,
-      message:    'Face enrolled and linked to member ID',
-    });
-  });
+      if (!device?.ipAddress) {
+        return reply.status(503).send({
+          error: 'No device found for this branch',
+          hint:  'Register and connect an access machine first.',
+        });
+      }
+
+      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+      const picLarge   = imageBase64.startsWith('data:')
+        ? imageBase64
+        : `data:image/jpeg;base64,${imageBase64}`;
+
+      try {
+        const u5Res = await fetch(`${machineUrl}/insertEmployee`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            password:           device.machinePassword ?? '123456',
+            name:               `${member.firstName} ${member.lastName}`.slice(0, 10),
+            id_number:          member.memberCode,
+            access_card_number: member.rfidCardId ?? '',
+            pass_date:          '0',
+            pass_time:          '0',
+            pic_large:          picLarge,
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!u5Res.ok) {
+          return reply.status(502).send({
+            error: 'Machine rejected request',
+            hint:  `U5 responded with HTTP ${u5Res.status}`,
+          });
+        }
+
+        const u5Data = await u5Res.json() as { code: number };
+        if (u5Data.code !== 200) {
+          const hint = u5Data.code === 12
+            ? 'Face too similar to an existing member — try a different photo'
+            : `U5 enrollment failed (code ${u5Data.code})`;
+          return reply.status(422).send({ error: 'Machine rejected enrollment', hint });
+        }
+      } catch (err: unknown) {
+        const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+        return reply.status(503).send({
+          error: isTimeout ? 'Machine timed out' : 'Cannot reach machine',
+          hint:  `Could not connect to ${machineUrl}. Check the device is on and on the same network as this server.`,
+        });
+      }
+
+      await Member.findByIdAndUpdate(req.params.id, { faceEnrolled: true });
+      await AuditLog.create({
+        actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,
+        action: 'FACE_ENROLL', resourceType: 'Member', resourceId: req.params.id,
+        after: { faceEnrolled: true, memberCode: member.memberCode }, ip: req.ip,
+      });
+
+      return reply.send({
+        success:    true,
+        memberId:   member.id as string,
+        memberCode: member.memberCode,
+        message:    'Face photo registered on machine — member can now use face access',
+      });
+    },
+  );
 
   // PUT /members/:id/fcm-token — called by the member app to register their FCM push token
   fastify.put<{ Params: { id: string }; Body: { fcmToken: string } }>(

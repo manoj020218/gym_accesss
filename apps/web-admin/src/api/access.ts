@@ -25,12 +25,15 @@ export interface AccessDevice {
   type: string;
   isOnline: boolean;
   lastHeartbeat?: string;
+  ipAddress?: string;
+  port?: number;
   pendingEventCount?: number;
   createdAt: string;
 }
 
 export const accessApi = {
   events: (params: {
+    memberId?: string;
     branchId?: string;
     zone?: string;
     decision?: string;
@@ -60,6 +63,21 @@ export const accessApi = {
       .get<{ addresses: string[]; port: number }>('/network-info')
       .then((r) => r.data)
       .catch(() => ({ addresses: [], port: 8080 })),
+
+  ping: (deviceCode: string, deviceIp: string, devicePort?: number, machinePassword?: string) =>
+    api
+      .post<{ ok: boolean; foundPort: number; deviceId?: string }>(
+        `/access-devices/${deviceCode}/ping`, { deviceIp, devicePort, machinePassword },
+      )
+      .then((r) => r.data),
+
+  u5Employees: (deviceId: string) =>
+    api
+      .get<{ employees: Array<{ userId: string; name: string; id_number?: string }> }>(
+        `/access-devices/${deviceId}/u5-employees`,
+      )
+      .then((r) => r.data)
+      .catch(() => ({ employees: [] })),
 
   fastConnect: (deviceCode: string, body: {
     deviceIp: string; devicePort?: number;

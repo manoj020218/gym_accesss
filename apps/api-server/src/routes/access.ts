@@ -143,22 +143,116 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send(
       devices.map((d) => ({
-        _id:             d._id,
-        deviceId:        d.deviceCode,
-        name:            d.name,
-        branchId:        d.branchId,
-        zone:            d.zone,
-        type:            d.type,
-        isOnline:        !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo),
-        lastHeartbeat:   d.lastHeartbeatAt?.toISOString(),
+        _id:              d._id,
+        deviceId:         d.deviceCode,
+        name:             d.name,
+        branchId:         d.branchId,
+        zone:             d.zone,
+        type:             d.type,
+        isOnline:         !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo),
+        lastHeartbeat:    d.lastHeartbeatAt?.toISOString(),
+        ipAddress:        d.ipAddress,
+        port:             d.port,
         pendingEventCount: 0,
-        createdAt:       d.createdAt.toISOString(),
+        createdAt:        d.createdAt.toISOString(),
       })),
     );
   });
 
+  // POST /access-devices/:deviceCode/ping — quick reachability check, marks device online if any HTTP response
+  fastify.post<{ Params: { deviceCode: string }; Body: { deviceIp: string; devicePort?: number; machinePassword?: string } }>(
+    '/access-devices/:deviceCode/ping',
+    async (req, reply) => {
+      const { deviceCode } = req.params;
+      const { deviceIp, devicePort, machinePassword } = req.body as { deviceIp: string; devicePort?: number; machinePassword?: string };
+
+      if (!deviceIp) return reply.status(400).send({ error: 'deviceIp required' });
+
+      const device = await AccessDevice.findOne({ deviceCode });
+      if (!device) return reply.status(404).send({ error: 'Device not found' });
+
+      const port = devicePort ?? device.port ?? 80;
+
+      // Try specified port first, then common ports
+      const portsToTry = [port, 80, 8090, 8080].filter((v, i, a) => a.indexOf(v) === i);
+      let foundPort: number | null = null;
+      let deviceId: string | undefined;
+
+      for (const p of portsToTry) {
+        try {
+          const res = await fetch(`http://${deviceIp}:${p}/health`, { signal: AbortSignal.timeout(3000) });
+          if (res.ok) {
+            const body = await res.json().catch(() => ({})) as { deviceId?: string };
+            deviceId = body.deviceId;
+            foundPort = p;
+            break;
+          }
+        } catch { /* try next */ }
+
+        try {
+          await fetch(`http://${deviceIp}:${p}/`, { signal: AbortSignal.timeout(2000) });
+          foundPort = p;
+          break;
+        } catch { /* try next */ }
+      }
+
+      if (foundPort === null) {
+        return reply.status(503).send({
+          error: 'Device not reachable',
+          hint:  `Nothing responded at ${deviceIp} on ports ${portsToTry.join(', ')}. Check power and network.`,
+        });
+      }
+
+      const update: Record<string, unknown> = { ipAddress: deviceIp, port: foundPort, lastHeartbeatAt: new Date() };
+      if (machinePassword) update['machinePassword'] = machinePassword;
+
+      await AccessDevice.findOneAndUpdate({ deviceCode }, update);
+
+      await DeviceSetupLog.create({
+        sessionId:      `ping_${Date.now().toString(36)}`,
+        branchId:       device.branchId,
+        deviceCode,
+        step:           'PING_SUCCESS',
+        confirmedValue: deviceId ?? deviceIp,
+        metadata:       { deviceIp, foundPort, deviceId, hasPassword: !!machinePassword },
+        adminIp:        req.ip,
+      });
+
+      return reply.send({ ok: true, deviceIp, foundPort, deviceId });
+    },
+  );
+
+  // GET /access-devices/:deviceId/u5-employees — proxy getEmployeeList from U5 machine
+  fastify.get<{ Params: { deviceId: string } }>(
+    '/access-devices/:deviceId/u5-employees',
+    async (req, reply) => {
+      const device = await AccessDevice.findOne({ deviceCode: req.params.deviceId, isActive: true });
+      if (!device?.ipAddress) {
+        return reply.status(404).send({ error: 'Device not found or no IP stored' });
+      }
+
+      try {
+        const res = await fetch(`http://${device.ipAddress}:${device.port ?? 80}/getEmployeeList`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ password: device.machinePassword ?? '123456' }),
+          signal:  AbortSignal.timeout(10_000),
+        });
+
+        if (!res.ok) return reply.status(502).send({ error: `Machine responded with HTTP ${res.status}` });
+
+        const data = await res.json() as { data?: Array<{ userId: string; name: string; id_number?: string }> };
+        return reply.send({ employees: data.data ?? [] });
+      } catch (err) {
+        const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+        return reply.status(503).send({ error: isTimeout ? 'Machine timed out' : 'Cannot reach machine' });
+      }
+    },
+  );
+
   // POST /access-devices/:deviceCode/fast-connect
-  // Admin enters the device's IP+SN from its display; cloud reaches out, verifies, marks online immediately
+  // Tries specified port first, then auto-scans common ports if that fails.
+  // Returns either success or a list of reachable ports so the user can pick the right one.
   fastify.post<{ Params: { deviceCode: string }; Body: {
     deviceIp: string; devicePort?: number;
     username?: string; password?: string; sn?: string;
@@ -172,57 +266,96 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     if (!device) return reply.status(404).send({ error: 'Device not registered' });
 
     const logBase = {
-      sessionId:  `fast_${Date.now().toString(36)}`,
-      branchId:   device.branchId,
+      sessionId: `fast_${Date.now().toString(36)}`,
+      branchId:  device.branchId,
       deviceCode,
-      adminIp:    req.ip,
+      adminIp:   req.ip,
     };
 
-    try {
-      const res = await fetch(`http://${deviceIp}:${devicePort}/health`, {
-        signal: AbortSignal.timeout(6000),
-      });
-
-      if (!res.ok) {
-        await DeviceSetupLog.create({ ...logBase, step: 'FAST_CONNECT_FAILED',
-          metadata: { deviceIp, devicePort, httpStatus: res.status } });
-        return reply.status(503).send({ error: `Device responded with HTTP ${res.status}` });
+    // Helper: try one port, return null if unreachable or not our edge service
+    async function probePort(ip: string, port: number, timeoutMs = 3000) {
+      try {
+        const res = await fetch(`http://${ip}:${port}/health`, {
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!res.ok) return { port, reachable: true, isEdge: false, body: null };
+        const body = await res.json() as Record<string, unknown>;
+        const isEdge = typeof body['deviceId'] === 'string';
+        return { port, reachable: true, isEdge, body };
+      } catch {
+        // Connection refused or timeout — also try root path to see if anything is listening
+        try {
+          await fetch(`http://${ip}:${port}/`, { signal: AbortSignal.timeout(timeoutMs) });
+          return { port, reachable: true, isEdge: false, body: null };
+        } catch {
+          return { port, reachable: false, isEdge: false, body: null };
+        }
       }
+    }
 
-      const health = (await res.json()) as { deviceId?: string; uptime?: number };
+    // 1. Try the user-specified port first
+    const primary = await probePort(deviceIp, devicePort, 5000);
 
-      // SN check — if user provided one, it must match the device's reported ID
+    if (primary.reachable && primary.isEdge) {
+      // Our edge service answered — verify SN if provided
+      const health = primary.body as { deviceId?: string; uptime?: number };
       if (sn && health.deviceId && health.deviceId !== sn) {
         await DeviceSetupLog.create({ ...logBase, step: 'FAST_CONNECT_SN_MISMATCH',
           metadata: { deviceIp, devicePort, enteredSn: sn, foundId: health.deviceId } });
         return reply.status(400).send({
           error: 'Serial number mismatch',
-          hint:  `The device at ${deviceIp}:${devicePort} reports ID "${health.deviceId}" but you entered "${sn}". Check the display and try again.`,
+          hint:  `Device at ${deviceIp}:${devicePort} reports ID "${health.deviceId}" — you entered "${sn}". Check the display and try again.`,
         });
       }
 
-      // Mark online — update IP and heartbeat timestamp so the GET /access-devices picks it up immediately
-      await AccessDevice.findOneAndUpdate(
-        { deviceCode },
-        { ipAddress: deviceIp, port: devicePort, lastHeartbeatAt: new Date() },
-      );
-
+      await AccessDevice.findOneAndUpdate({ deviceCode },
+        { ipAddress: deviceIp, port: devicePort, lastHeartbeatAt: new Date() });
       await DeviceSetupLog.create({ ...logBase, step: 'FAST_CONNECT_SUCCESS',
         confirmedValue: health.deviceId ?? deviceIp,
-        metadata: { deviceIp, devicePort, username, sn, foundDeviceId: health.deviceId, uptimeS: health.uptime } });
+        metadata: { deviceIp, devicePort, username, sn, foundDeviceId: health.deviceId } });
 
-      return reply.send({ success: true, deviceId: health.deviceId, uptime: health.uptime });
+      return reply.send({ success: true, deviceId: health.deviceId, port: devicePort });
+    }
 
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      await DeviceSetupLog.create({ ...logBase, step: 'FAST_CONNECT_FAILED',
-        metadata: { deviceIp, devicePort, error: detail } });
-      return reply.status(503).send({
-        error: 'Cannot reach device',
-        detail,
-        hint: `Make sure the device at ${deviceIp}:${devicePort} is powered on and on the same network as this server.`,
+    // 2. Primary port failed — parallel scan of common ports (skip the one already tried)
+    const SCAN_PORTS = [80, 443, 8080, 8090, 8000, 3000, 4370, 4000].filter((p) => p !== devicePort);
+    const results = await Promise.all(SCAN_PORTS.map((p) => probePort(deviceIp, p, 2000)));
+    const reachable = results.filter((r) => r.reachable);
+    const edgePorts = reachable.filter((r) => r.isEdge);
+
+    await DeviceSetupLog.create({ ...logBase, step: 'FAST_CONNECT_SCAN',
+      metadata: {
+        deviceIp, triedPort: devicePort, primaryReachable: primary.reachable,
+        reachablePorts: reachable.map((r) => r.port),
+        edgePorts: edgePorts.map((r) => r.port),
+      },
+    });
+
+    // 3a. Found our edge service on a different port — return it so the UI can suggest it
+    if (edgePorts.length > 0) {
+      return reply.status(409).send({
+        error:     'Wrong port — edge service found on a different port',
+        foundEdge: true,
+        suggestPort: edgePorts[0].port,
+        hint:      `Edge service is running on port ${edgePorts[0].port}, not ${devicePort}. Use that port instead.`,
       });
     }
+
+    // 3b. Device is reachable but no edge service found on any port
+    if (reachable.length > 0) {
+      return reply.status(409).send({
+        error:          'Device reachable but edge service not found',
+        foundEdge:      false,
+        reachablePorts: reachable.map((r) => r.port),
+        hint:           `The machine responded on port${reachable.length > 1 ? 's' : ''} ${reachable.map((r) => r.port).join(', ')} — these are likely its built-in web interface. The edge service (port 8090 by default) is not running yet. Start the edge service on the device, then try again.`,
+      });
+    }
+
+    // 3c. Nothing reachable at all
+    return reply.status(503).send({
+      error: 'Device not reachable',
+      hint:  `Scanned ${SCAN_PORTS.length + 1} ports on ${deviceIp} — nothing responded. Check that the device is powered on and on the same network as this server.`,
+    });
   });
 
   // GET /network-info — returns server's non-loopback IPv4 addresses so the wizard can show them

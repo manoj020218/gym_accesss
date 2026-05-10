@@ -8,8 +8,11 @@ export interface IAccessDevice extends Document {
   zone: Zone;
   type: DeviceType;
   protocol: DeviceProtocol;
-  ipAddress?: string;
-  port?: number;
+  ipAddress?: string;    // physical hardware IP (e.g. ZKTeco terminal)
+  port?: number;         // physical hardware port
+  edgeServiceIp?: string;   // IP where our edge Node.js service is reachable
+  edgeServicePort?: number; // port where our edge Node.js service is reachable
+  machinePassword?: string; // U5 web UI admin password (default 123456)
   serialPort?: string;
   baudRate?: number;
   relayEnabled: boolean;
@@ -33,9 +36,12 @@ const accessDeviceSchema = new Schema<IAccessDevice>(
     zone:          { type: String, required: true },
     type:          { type: String, required: true },
     protocol:      { type: String, required: true },
-    ipAddress:     String,
-    port:          Number,
-    serialPort:    String,
+    ipAddress:       String,
+    port:            Number,
+    edgeServiceIp:   String,
+    edgeServicePort: Number,
+    machinePassword: String,
+    serialPort:      String,
     baudRate:      Number,
     relayEnabled:  { type: Boolean, default: true },
     antiPassback:  { type: String, default: 'disabled' },

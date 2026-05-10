@@ -45,8 +45,8 @@ export const memberApi = {
   regenerateQr: (id: string) =>
     api.post<{ qrToken: string }>(`/members/${id}/qr-token`).then((r) => r.data),
 
-  enrollFace: (id: string) =>
-    api.post<{ success: boolean; memberId: string; memberCode: string; message: string }>(
-      `/members/${id}/enroll-face`,
+  enrollFace: (id: string, payload?: { imageBase64?: string; mode?: 'upload' | 'capture' }) =>
+    api.post<{ success: boolean; memberId: string; memberCode: string; message: string; mode?: string }>(
+      `/members/${id}/enroll-face`, payload ?? {},
     ).then((r) => r.data),
 };

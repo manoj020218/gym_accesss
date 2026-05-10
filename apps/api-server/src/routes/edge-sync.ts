@@ -17,6 +17,8 @@ const HeartbeatBody = z.object({
   syncLag:         z.number(),
   pendingEventCount: z.number(),
   uptime:          z.number(),
+  edgeServiceIp:   z.string().optional(),
+  edgeServicePort: z.number().optional(),
 });
 
 const PushBody = z.object({
@@ -83,10 +85,14 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         { upsert: true, new: true },
       );
 
+      const edgeUpdate: Record<string, unknown> = { lastHeartbeatAt: new Date() };
+      if (body.edgeServiceIp)   edgeUpdate['edgeServiceIp']   = body.edgeServiceIp;
+      if (body.edgeServicePort) edgeUpdate['edgeServicePort'] = body.edgeServicePort;
+
       await AccessDevice.findOneAndUpdate(
         { deviceCode: body.edgeDeviceId },
         {
-          lastHeartbeatAt: new Date(),
+          ...edgeUpdate,
           $setOnInsert: {
             name:          `Device ${body.edgeDeviceId}`,
             branchId:      body.branchId,

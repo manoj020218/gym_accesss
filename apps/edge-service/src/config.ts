@@ -11,6 +11,10 @@ const Env = z.object({
   EDGE_SQLITE_PATH:      z.string().default('./data/edge.db'),
   EDGE_SYNC_INTERVAL_MS: z.coerce.number().default(30_000),
   EDGE_HEARTBEAT_INTERVAL_MS: z.coerce.number().default(60_000),
+  // U5 physical machine
+  U5_MACHINE_IP:       z.string().optional(),
+  U5_MACHINE_PORT:     z.coerce.number().default(80),
+  U5_MACHINE_PASSWORD: z.string().default('123456'),
 });
 
 const parsed = Env.safeParse(process.env);
