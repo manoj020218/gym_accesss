@@ -89,6 +89,11 @@ export const accessApi = {
       )
       .then((r) => r.data),
 
+  syncAttendance: (deviceId: string) =>
+    api
+      .post<{ imported: number; total: number }>(`/access-devices/${deviceId}/sync-attendance`)
+      .then((r) => r.data),
+
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;
     step: string; confirmedValue?: string; metadata?: Record<string, unknown>;

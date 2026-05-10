@@ -1,11 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, createHash } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { AccessEvent } from '../models/AccessEvent.js';
 import { AccessDevice } from '../models/AccessDevice.js';
 import { DeviceSetupLog } from '../models/DeviceSetupLog.js';
 import { AccessDecision, Zone, SubjectType, StaffRole } from '@edge-gym/shared-types';
+import { Member } from '../models/Member.js';
 
 const ListQuery = z.object({
   branchId:    z.string().optional(),
@@ -127,7 +128,7 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ deviceId: device.id, deviceCode, secret });
   });
 
-  // GET /access-devices — list devices with live online status derived from heartbeat
+  // GET /access-devices — list devices; if heartbeat is stale, ping machine directly before declaring offline
   fastify.get('/access-devices', async (req, reply) => {
     const { branchId } = req.query as { branchId?: string };
     const filter: Record<string, unknown> = { isActive: true };
@@ -141,22 +142,39 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     const devices = await AccessDevice.find(filter).lean();
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-    return reply.send(
-      devices.map((d) => ({
+    const results = await Promise.all(devices.map(async (d) => {
+      let isOnline = !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo);
+
+      // Before declaring offline: ping the machine directly if it has a stored IP
+      if (!isOnline && d.ipAddress) {
+        try {
+          const r = await fetch(`http://${d.ipAddress}:${d.port ?? 80}/`, {
+            signal: AbortSignal.timeout(2000),
+          });
+          isOnline = r.ok || r.status < 500;
+          if (isOnline) {
+            void AccessDevice.findByIdAndUpdate(d._id, { lastHeartbeatAt: new Date() });
+          }
+        } catch { /* machine not reachable */ }
+      }
+
+      return {
         _id:              d._id,
         deviceId:         d.deviceCode,
         name:             d.name,
         branchId:         d.branchId,
         zone:             d.zone,
         type:             d.type,
-        isOnline:         !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo),
+        isOnline,
         lastHeartbeat:    d.lastHeartbeatAt?.toISOString(),
         ipAddress:        d.ipAddress,
         port:             d.port,
         pendingEventCount: 0,
         createdAt:        d.createdAt.toISOString(),
-      })),
-    );
+      };
+    }));
+
+    return reply.send(results);
   });
 
   // POST /access-devices/:deviceCode/ping — quick reachability check, marks device online if any HTTP response
@@ -247,6 +265,103 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         const isTimeout = err instanceof Error && err.name === 'TimeoutError';
         return reply.status(503).send({ error: isTimeout ? 'Machine timed out' : 'Cannot reach machine' });
       }
+    },
+  );
+
+  // POST /access-devices/:deviceCode/sync-attendance — pull U5 attendance logs directly into MongoDB
+  fastify.post<{ Params: { deviceCode: string } }>(
+    '/access-devices/:deviceCode/sync-attendance',
+    async (req, reply) => {
+      const device = await AccessDevice.findOne({ deviceCode: req.params.deviceCode, isActive: true });
+      if (!device?.ipAddress) {
+        return reply.status(404).send({ error: 'Device not found or no IP configured' });
+      }
+
+      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+      const password   = device.machinePassword ?? '123456';
+
+      // 1. Fetch attendance records
+      let attRecords: Array<{ userId: string; time: string; id_number?: string }> = [];
+      try {
+        const r = await fetch(`${machineUrl}/getAttRecord`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }), signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
+        const d = await r.json() as { data?: typeof attRecords };
+        attRecords = d.data ?? [];
+      } catch {
+        return reply.status(503).send({ error: 'Cannot reach machine', hint: `Check ${machineUrl} is accessible` });
+      }
+
+      if (attRecords.length === 0) return reply.send({ imported: 0, total: 0 });
+
+      // 2. Build userId→id_number map when records don't carry id_number
+      const needsMap = attRecords.some(r => !r.id_number);
+      const userIdToCode = new Map<string, string>();
+      if (needsMap) {
+        try {
+          const r = await fetch(`${machineUrl}/getEmployeeList`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }), signal: AbortSignal.timeout(10_000),
+          });
+          if (r.ok) {
+            const d = await r.json() as { data?: Array<{ userId: string; id_number?: string }> };
+            for (const e of d.data ?? []) if (e.id_number) userIdToCode.set(e.userId, e.id_number);
+          }
+        } catch { /* proceed without map */ }
+      }
+
+      // 3. Upsert each record as an AccessEvent
+      let imported = 0;
+      for (const rec of attRecords) {
+        const eventTime = new Date(rec.time);
+        if (isNaN(eventTime.getTime())) continue;
+
+        const memberCode = rec.id_number ?? userIdToCode.get(rec.userId);
+        if (!memberCode) continue;
+
+        const member = await Member.findOne({ memberCode, branchId: device.branchId });
+        if (!member) continue;
+
+        // Stable negative localSeq — deterministic per device+userId+time, avoids collision with edge-pushed events
+        const seqHash = parseInt(
+          createHash('md5')
+            .update(`${device.deviceCode}:${rec.userId}:${eventTime.getTime()}`)
+            .digest('hex')
+            .slice(0, 10),
+          16,
+        );
+        const localSeq = -seqHash;
+
+        try {
+          await AccessEvent.findOneAndUpdate(
+            { edgeDeviceId: device.deviceCode, subjectId: member._id.toString(), eventTime },
+            {
+              $setOnInsert: {
+                edgeDeviceId: device.deviceCode,
+                branchId:     device.branchId,
+                zone:         'main_entry',
+                subjectType:  'member',
+                subjectId:    member._id.toString(),
+                subjectName:  `${member.firstName} ${member.lastName}`,
+                decision:     'ALLOW',
+                identifierUsed: 'face',
+                localSeq,
+                eventTime,
+                syncedAt: new Date(),
+              },
+            },
+            { upsert: true },
+          );
+          imported++;
+        } catch { /* duplicate — already in DB */ }
+      }
+
+      // Update device heartbeat since we just successfully reached it
+      void AccessDevice.findByIdAndUpdate(device._id, { lastHeartbeatAt: new Date() });
+
+      return reply.send({ imported, total: attRecords.length });
     },
   );
 

@@ -65,7 +65,8 @@ export default function MemberDetail() {
     queryKey: ['access-devices', member?.branchId],
     queryFn:  () => accessApi.devices(member?.branchId),
     enabled:  (showEnroll || tab === 'access') && !!member?.branchId,
-    refetchInterval: showEnroll ? 8000 : false,
+    // Live-ping happens server-side; poll every 30s on access tab, 8s while enrolling
+    refetchInterval: showEnroll ? 8000 : (tab === 'access' ? 30_000 : false),
   });
   const deviceOnline  = devices.some((d) => d.isOnline);
   const offlineDevice = devices.find((d) => !d.isOnline);
@@ -126,6 +127,15 @@ export default function MemberDetail() {
       toast.success('QR token regenerated');
       void qc.invalidateQueries({ queryKey: ['member', id] });
     },
+  });
+
+  const syncMut = useMutation({
+    mutationFn: () => accessApi.syncAttendance(firstDevice!.deviceId),
+    onSuccess: (data) => {
+      toast.success(`Synced ${data.imported} record${data.imported !== 1 ? 's' : ''} from machine`);
+      void qc.invalidateQueries({ queryKey: ['events-member', id] });
+    },
+    onError: () => toast.success('Could not reach machine — check network'),
   });
 
   const enrollMut = useMutation({
@@ -281,9 +291,9 @@ export default function MemberDetail() {
           <div className="p-5">
             {tab === 'access' && (
               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[11px] text-muted">Live · refreshes every 8s</span>
+                  <span className="text-[11px] text-muted">Live · auto-refreshes</span>
                   {/* U5 sync warning */}
                   {member.faceEnrolled && u5Sync && !u5HasMember && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-900/30 text-amber-400 border border-amber-500/20">
@@ -292,20 +302,37 @@ export default function MemberDetail() {
                   )}
                   {member.faceEnrolled && u5HasMember && (
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-900/20 text-emerald-400 border border-emerald-500/20">
-                      ✓ Confirmed on machine
+                      ✓ On machine
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() => { setShowEnroll(true); setEnrollStep('idle'); }}
-                  title="Enroll Face on Device"
-                  className="w-10 h-10 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-lg transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                    <circle cx="12" cy="13" r="4"/>
-                  </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Pull attendance records from machine right now */}
+                  {firstDevice && (
+                    <button
+                      onClick={() => syncMut.mutate()}
+                      disabled={syncMut.isPending}
+                      title="Sync attendance from machine"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-white/[0.05] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border border-white/[0.06] transition-all disabled:opacity-50"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`w-3.5 h-3.5 ${syncMut.isPending ? 'animate-spin' : ''}`}>
+                        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                      </svg>
+                      {syncMut.isPending ? 'Syncing…' : 'Sync'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { setShowEnroll(true); setEnrollStep('idle'); }}
+                    title="Enroll Face on Device"
+                    className="w-9 h-9 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-lg transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                      <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
             {tab === 'membership' && (
