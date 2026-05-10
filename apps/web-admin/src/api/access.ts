@@ -94,6 +94,17 @@ export const accessApi = {
       .post<{ imported: number; total: number }>(`/access-devices/${deviceId}/sync-attendance`)
       .then((r) => r.data),
 
+  syncStatus: (deviceId: string) =>
+    api
+      .get<{
+        totalOnMachine: number;
+        totalEnrolled: number;
+        missingFromMachine: Array<{ memberId: string; memberCode: string; name: string }>;
+        orphans: Array<{ userId: string; name: string; id_number?: string }>;
+      }>(`/access-devices/${deviceId}/sync-status`)
+      .then((r) => r.data)
+      .catch(() => null),
+
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;
     step: string; confirmedValue?: string; metadata?: Record<string, unknown>;

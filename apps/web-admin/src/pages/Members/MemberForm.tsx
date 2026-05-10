@@ -15,11 +15,12 @@ interface Props {
 export default function MemberForm({ onSuccess, initial, memberId }: Props) {
   const { selectedBranchId } = useAuthStore();
   const [form, setForm] = useState({
-    firstName: initial?.firstName ?? '',
-    lastName:  initial?.lastName  ?? '',
-    phone:     initial?.phone     ?? '',
-    email:     initial?.email     ?? '',
-    branchId:  initial?.branchId  ?? selectedBranchId ?? '',
+    firstName:  initial?.firstName ?? '',
+    lastName:   initial?.lastName  ?? '',
+    phone:      initial?.phone     ?? '',
+    email:      initial?.email     ?? '',
+    branchId:   initial?.branchId  ?? selectedBranchId ?? '',
+    memberCode: '',  // blank = auto-generate sequential; custom if typed
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -58,7 +59,21 @@ export default function MemberForm({ onSuccess, initial, memberId }: Props) {
       <Input label="Phone" value={form.phone} onChange={set('phone')} error={errors['phone']} type="tel" />
       <Input label="Email (optional)" value={form.email} onChange={set('email')} type="email" />
       {!memberId && (
-        <Input label="Branch ID" value={form.branchId} onChange={set('branchId')} error={errors['branchId']} />
+        <>
+          <Input label="Branch ID" value={form.branchId} onChange={set('branchId')} error={errors['branchId']} />
+          <Input
+            label="Member ID (optional)"
+            value={form.memberCode}
+            onChange={set('memberCode')}
+            placeholder="Leave blank to auto-generate (0001, 0002…)"
+            className="font-mono"
+          />
+          {!form.memberCode && (
+            <p className="text-[11px] text-muted -mt-2 px-0.5">
+              Auto ID is sequential per branch. Type your own ID if the gym uses a custom numbering system.
+            </p>
+          )}
+        </>
       )}
 
       <div className="flex gap-3 justify-end pt-2">

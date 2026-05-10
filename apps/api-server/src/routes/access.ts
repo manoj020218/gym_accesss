@@ -280,18 +280,35 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
       const password   = device.machinePassword ?? '123456';
 
-      // 1. Fetch attendance records
+      // 1. Fetch attendance records — try several endpoint names; firmware varies
+      const ATT_ENDPOINTS = ['/getAttRecord', '/getAttLogs', '/getAttendanceLogs', '/getCheckInRecord'];
       let attRecords: Array<{ userId: string; time: string; id_number?: string }> = [];
-      try {
-        const r = await fetch(`${machineUrl}/getAttRecord`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }), signal: AbortSignal.timeout(10_000),
+      let attEndpointFound = false;
+      const triedErrors: string[] = [];
+
+      for (const ep of ATT_ENDPOINTS) {
+        try {
+          const r = await fetch(`${machineUrl}${ep}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }), signal: AbortSignal.timeout(6_000),
+          });
+          if (!r.ok) { triedErrors.push(`${ep} → HTTP ${r.status}`); continue; }
+          const d = await r.json() as { code?: number; data?: typeof attRecords };
+          if (d.code !== undefined && d.code !== 200) { triedErrors.push(`${ep} → code ${d.code}`); continue; }
+          attRecords = d.data ?? [];
+          attEndpointFound = true;
+          break;
+        } catch (e) {
+          triedErrors.push(`${ep} → ${(e as Error).message}`);
+        }
+      }
+
+      if (!attEndpointFound) {
+        return reply.status(502).send({
+          error: 'Attendance endpoint not found on this machine firmware',
+          hint:  `Open the machine web UI (${machineUrl}), navigate to the attendance / records section, open browser DevTools → Network tab, and note the request URL. Share that endpoint name to add it here.`,
+          tried: triedErrors,
         });
-        if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
-        const d = await r.json() as { data?: typeof attRecords };
-        attRecords = d.data ?? [];
-      } catch {
-        return reply.status(503).send({ error: 'Cannot reach machine', hint: `Check ${machineUrl} is accessible` });
       }
 
       if (attRecords.length === 0) return reply.send({ imported: 0, total: 0 });
@@ -362,6 +379,57 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       void AccessDevice.findByIdAndUpdate(device._id, { lastHeartbeatAt: new Date() });
 
       return reply.send({ imported, total: attRecords.length });
+    },
+  );
+
+  // GET /access-devices/:deviceCode/sync-status — compare machine employees vs our enrolled members
+  fastify.get<{ Params: { deviceCode: string } }>(
+    '/access-devices/:deviceCode/sync-status',
+    async (req, reply) => {
+      const device = await AccessDevice.findOne({ deviceCode: req.params.deviceCode, isActive: true });
+      if (!device?.ipAddress) {
+        return reply.status(404).send({ error: 'Device not found or no IP configured' });
+      }
+
+      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+
+      let machineEmployees: Array<{ userId: string; name: string; id_number?: string }> = [];
+      try {
+        const r = await fetch(`${machineUrl}/getEmployeeList`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: device.machinePassword ?? '123456' }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
+        const d = await r.json() as { data?: typeof machineEmployees };
+        machineEmployees = d.data ?? [];
+      } catch {
+        return reply.status(503).send({ error: 'Cannot reach machine' });
+      }
+
+      const enrolledMembers = await Member.find({ branchId: device.branchId, faceEnrolled: true })
+        .select('_id memberCode firstName lastName')
+        .lean();
+
+      const machineCodes = new Set(machineEmployees.map(e => e.id_number).filter(Boolean) as string[]);
+      const memberCodes  = new Set(enrolledMembers.map(m => m.memberCode));
+
+      // Enrolled in our software but photo missing from machine
+      const missingFromMachine = enrolledMembers
+        .filter(m => !machineCodes.has(m.memberCode))
+        .map(m => ({ memberId: m._id.toString(), memberCode: m.memberCode, name: `${m.firstName} ${m.lastName}` }));
+
+      // Present in machine but no matching member in our software
+      const orphans = machineEmployees
+        .filter(e => !e.id_number || !memberCodes.has(e.id_number))
+        .map(e => ({ userId: e.userId, name: e.name, id_number: e.id_number }));
+
+      return reply.send({
+        totalOnMachine:   machineEmployees.length,
+        totalEnrolled:    enrolledMembers.length,
+        missingFromMachine,
+        orphans,
+      });
     },
   );
 

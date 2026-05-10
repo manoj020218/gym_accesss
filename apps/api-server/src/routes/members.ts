@@ -6,6 +6,7 @@ import { Membership } from '../models/Membership.js';
 import { MemberStatus, Zone } from '@edge-gym/shared-types';
 import { AuditLog } from '../models/AuditLog.js';
 import { AccessDevice } from '../models/AccessDevice.js';
+import { nextSeq } from '../models/Counter.js';
 
 const emptyToUndefined = z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
 
@@ -17,6 +18,7 @@ const CreateBody = z.object({
   email:       z.preprocess((v) => (v === '' ? undefined : v), z.string().email().optional()),
   address:     emptyToUndefined,
   dateOfBirth: emptyToUndefined,
+  memberCode:  emptyToUndefined,  // custom ID — auto-generated if omitted
   emergencyContact: z.object({ name: z.string(), phone: z.string() }).optional(),
   allowedBranchIds: z.array(z.string()).optional(),
 });
@@ -36,8 +38,9 @@ const ListQuery = z.object({
   limit:    z.coerce.number().default(20),
 });
 
-function nextMemberCode(): string {
-  return `MEM${Date.now().toString().slice(-6)}`;
+async function autoMemberCode(branchId: string): Promise<string> {
+  const seq = await nextSeq(`member_${branchId}`);
+  return String(seq).padStart(4, '0');  // 0001, 0002 … per branch
 }
 
 const memberRoutes: FastifyPluginAsync = async (fastify) => {
@@ -79,9 +82,18 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /members
   fastify.post<{ Body: z.infer<typeof CreateBody> }>('/members', async (req, reply) => {
     const body = CreateBody.parse(req.body);
+
+    let memberCode = body.memberCode?.trim();
+    if (memberCode) {
+      const clash = await Member.findOne({ memberCode });
+      if (clash) return reply.status(409).send({ error: 'Member ID already in use', hint: 'Choose a different ID or leave blank for auto-generate.' });
+    } else {
+      memberCode = await autoMemberCode(body.branchId);
+    }
+
     const member = await Member.create({
       ...body,
-      memberCode:      nextMemberCode(),
+      memberCode,
       status:          MemberStatus.Pending,
       allowedZones:    [Zone.MainEntry],
       allowedBranchIds: body.allowedBranchIds ?? [body.branchId],
@@ -243,17 +255,39 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      await Member.findByIdAndUpdate(req.params.id, { faceEnrolled: true });
+      // Fetch employee list to get the machine-assigned userId for this member
+      let machineUserId: string | undefined;
+      try {
+        const empRes = await fetch(`${machineUrl}/getEmployeeList`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: device.machinePassword ?? '123456' }),
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (empRes.ok) {
+          const empData = await empRes.json() as { data?: Array<{ userId: string; id_number?: string }> };
+          machineUserId = empData.data?.find(e => e.id_number === member.memberCode)?.userId;
+        }
+      } catch { /* non-critical — enrollment still succeeds */ }
+
+      const memberUpdate: Record<string, unknown> = { faceEnrolled: true };
+      if (machineUserId) {
+        memberUpdate['$addToSet'] = { machineUsers: { deviceCode: device.deviceCode, machineUserId } };
+      }
+      await Member.findByIdAndUpdate(req.params.id, machineUserId
+        ? { faceEnrolled: true, $addToSet: { machineUsers: { deviceCode: device.deviceCode, machineUserId } } }
+        : { faceEnrolled: true });
+
       await AuditLog.create({
         actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,
         action: 'FACE_ENROLL', resourceType: 'Member', resourceId: req.params.id,
-        after: { faceEnrolled: true, memberCode: member.memberCode }, ip: req.ip,
+        after: { faceEnrolled: true, memberCode: member.memberCode, machineUserId }, ip: req.ip,
       });
 
       return reply.send({
         success:    true,
         memberId:   member.id as string,
         memberCode: member.memberCode,
+        machineUserId,
         message:    'Face photo registered on machine — member can now use face access',
       });
     },

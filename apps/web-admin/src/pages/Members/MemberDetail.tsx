@@ -258,6 +258,16 @@ export default function MemberDetail() {
                 </span>
               )}
             </div>
+            {/* Machine user ID — shown when enrolled so admin can cross-reference the machine's own ID */}
+            {member.faceEnrolled && firstDevice && (() => {
+              const mu = member.machineUsers?.find(u => u.deviceCode === firstDevice.deviceId);
+              return mu ? (
+                <div className="flex justify-between items-center">
+                  <span className="text-muted text-xs">Machine ID</span>
+                  <span className="text-slate-500 text-[11px] font-mono">{mu.machineUserId}</span>
+                </div>
+              ) : null;
+            })()}
           </div>
 
           <div className="mt-4 flex flex-col gap-2">

@@ -13,6 +13,7 @@ export interface Member {
   qrToken?: string;
   fcmToken?: string;
   faceEnrolled?: boolean;
+  machineUsers?: Array<{ deviceCode: string; machineUserId: string }>;
   hasDues?: boolean;
   createdAt: string;
   updatedAt: string;

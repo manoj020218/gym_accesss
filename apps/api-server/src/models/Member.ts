@@ -18,6 +18,7 @@ export interface IMember extends Document {
   rfidCardId?: string;
   qrToken?: string;
   faceEnrolled: boolean;
+  machineUsers?: Array<{ deviceCode: string; machineUserId: string }>;
   healthDeclarationSigned: boolean;
   fcmToken?: string;
   blacklistReason?: string;
@@ -44,6 +45,7 @@ const memberSchema = new Schema<IMember>(
     rfidCardId:    { type: String, sparse: true, index: true },
     qrToken:       { type: String, sparse: true, index: true },
     faceEnrolled:            { type: Boolean, default: false },
+    machineUsers:            [{ deviceCode: String, machineUserId: String, _id: false }],
     healthDeclarationSigned: { type: Boolean, default: false },
     fcmToken:        { type: String, sparse: true },
     blacklistReason: String,
