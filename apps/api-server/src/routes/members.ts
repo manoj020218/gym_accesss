@@ -217,6 +217,8 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
         ? imageBase64
         : `data:image/jpeg;base64,${imageBase64}`;
 
+      // userId is returned by the machine in the insert response — capture it directly
+      let machineUserId: string | undefined;
       try {
         const u5Res = await fetch(`${machineUrl}/insertEmployee`, {
           method:  'POST',
@@ -240,13 +242,15 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        const u5Data = await u5Res.json() as { code: number };
+        const u5Data = await u5Res.json() as { code: number; userId?: string };
         if (u5Data.code !== 200) {
           const hint = u5Data.code === 12
             ? 'Face too similar to an existing member — try a different photo'
             : `U5 enrollment failed (code ${u5Data.code})`;
           return reply.status(422).send({ error: 'Machine rejected enrollment', hint });
         }
+
+        machineUserId = u5Data.userId; // e.g. "1550698414"
       } catch (err: unknown) {
         const isTimeout = err instanceof Error && err.name === 'TimeoutError';
         return reply.status(503).send({
@@ -255,24 +259,6 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // Fetch employee list to get the machine-assigned userId for this member
-      let machineUserId: string | undefined;
-      try {
-        const empRes = await fetch(`${machineUrl}/getEmployeeList`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: device.machinePassword ?? '123456' }),
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (empRes.ok) {
-          const empData = await empRes.json() as { data?: Array<{ userId: string; id_number?: string }> };
-          machineUserId = empData.data?.find(e => e.id_number === member.memberCode)?.userId;
-        }
-      } catch { /* non-critical — enrollment still succeeds */ }
-
-      const memberUpdate: Record<string, unknown> = { faceEnrolled: true };
-      if (machineUserId) {
-        memberUpdate['$addToSet'] = { machineUsers: { deviceCode: device.deviceCode, machineUserId } };
-      }
       await Member.findByIdAndUpdate(req.params.id, machineUserId
         ? { faceEnrolled: true, $addToSet: { machineUsers: { deviceCode: device.deviceCode, machineUserId } } }
         : { faceEnrolled: true });

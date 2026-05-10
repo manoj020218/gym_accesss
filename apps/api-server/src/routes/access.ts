@@ -307,32 +307,19 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (attRecords.length === 0) return reply.send({ imported: 0, total: 0 });
 
-      // 2. Build userId→id_number map when records don't carry id_number
-      const needsMap = attRecords.some(r => !r.id_number);
-      const userIdToCode = new Map<string, string>();
-      if (needsMap) {
-        try {
-          const r = await fetch(`${machineUrl}/getEmployeeList`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password }), signal: AbortSignal.timeout(10_000),
-          });
-          if (r.ok) {
-            const d = await r.json() as { data?: Array<{ userId: string; id_number?: string }> };
-            for (const e of d.data ?? []) if (e.id_number) userIdToCode.set(e.userId, e.id_number);
-          }
-        } catch { /* proceed without map */ }
-      }
-
-      // 3. Upsert each record as an AccessEvent
+      // 2. Upsert each record as an AccessEvent
+      //    Primary lookup: member.machineUsers[].machineUserId === rec.userId
+      //    (stored on the member at enrollment time — the machine's own userId)
+      //    Fallback: id_number in the punch record matches memberCode (some firmware includes it)
       let imported = 0;
       for (const rec of attRecords) {
         const eventTime = new Date(rec.time);
         if (isNaN(eventTime.getTime())) continue;
 
-        const memberCode = rec.id_number ?? userIdToCode.get(rec.userId);
-        if (!memberCode) continue;
+        const member =
+          await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': rec.userId }) ??
+          (rec.id_number ? await Member.findOne({ memberCode: rec.id_number, branchId: device.branchId }) : null);
 
-        const member = await Member.findOne({ memberCode, branchId: device.branchId });
         if (!member) continue;
 
         // Stable negative localSeq — deterministic per device+userId+time, avoids collision with edge-pushed events
