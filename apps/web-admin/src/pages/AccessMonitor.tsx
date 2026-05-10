@@ -71,10 +71,26 @@ export default function AccessMonitor() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const activeDeviceId = selectedDeviceId || u5Devices[0]?.deviceId || '';
 
+  // Member sync results — returned records include captured face pics
+  const [syncResults, setSyncResults] = useState<{
+    imported: number; total: number;
+    records: Array<{ subjectName: string; eventTime: string; pic?: string; isNew: boolean }>;
+  } | null>(null);
+
+  const syncMembersMut = useMutation({
+    mutationFn: () => accessApi.syncAttendance(activeDeviceId),
+    onSuccess: (res) => {
+      setSyncResults(res);
+      void qc.invalidateQueries({ queryKey: ['access-events'] });
+      toast.success(`Synced: ${res.imported} new record${res.imported !== 1 ? 's' : ''} from ${res.total} total`);
+    },
+    onError: () => toast.error('Could not reach machine — check device connection'),
+  });
+
   // Stranger logs — on-demand mutation (not auto-polled)
   const [strangerData, setStrangerData] = useState<{
     total: number;
-    data: Array<{ userId: string | number; name?: string; time: string; pic?: string }>;
+    data: Array<{ userId: string | number; name?: string; checkin_time: string; pic?: string }>;
   } | null>(null);
 
   const syncStrangersMut = useMutation({
@@ -137,7 +153,7 @@ export default function AccessMonitor() {
       {/* ── MEMBERS SEGMENT ── */}
       {segment === 'members' && (
         <>
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
             <div className="w-44">
               <Select options={ZONE_OPTIONS} value={zone} onChange={(e) => { setZone(e.target.value); setPage(1); }} />
             </div>
@@ -145,6 +161,33 @@ export default function AccessMonitor() {
               <Select options={DECISION_OPTIONS} value={decision} onChange={(e) => { setDecision(e.target.value); setPage(1); }} />
             </div>
             <div className="ml-auto flex items-center gap-3">
+              {/* Device picker — only shown when there are multiple U5 machines */}
+              {u5Devices.length > 1 && (
+                <div className="w-44">
+                  <Select
+                    options={u5Devices.map((d) => ({ value: d.deviceId, label: d.name }))}
+                    value={activeDeviceId}
+                    onChange={(e) => setSelectedDeviceId(e.target.value)}
+                  />
+                </div>
+              )}
+              {activeDeviceId && (
+                <Button
+                  size="sm"
+                  disabled={syncMembersMut.isPending}
+                  onClick={() => syncMembersMut.mutate()}
+                >
+                  {syncMembersMut.isPending ? (
+                    <>
+                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".25"/>
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
+                      </svg>
+                      Syncing…
+                    </>
+                  ) : 'Sync from Machine'}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => void refetchEvents()}>
                 Refresh
               </Button>
@@ -154,6 +197,51 @@ export default function AccessMonitor() {
               </div>
             </div>
           </div>
+
+          {/* Sync results panel — captured face photos from last sync */}
+          {syncResults && syncResults.records.length > 0 && (
+            <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-slate-300">
+                  Last Sync — {syncResults.imported} new / {syncResults.total} total from machine
+                </span>
+                <button
+                  onClick={() => setSyncResults(null)}
+                  className="text-[11px] text-slate-500 hover:text-slate-300"
+                >
+                  Dismiss ×
+                </button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {syncResults.records.map((rec, i) => {
+                  const src = rec.pic
+                    ? (rec.pic.startsWith('data:') ? rec.pic : `data:image/jpeg;base64,${rec.pic}`)
+                    : null;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex-shrink-0 w-24 rounded-lg overflow-hidden border ${rec.isNew ? 'border-emerald-500/30' : 'border-white/[0.06]'}`}
+                    >
+                      <div className="w-24 h-24 bg-black/30 flex items-center justify-center">
+                        {src ? (
+                          <img src={src} alt={rec.subjectName} className="w-full h-full object-cover" loading="lazy" />
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-slate-600">
+                            <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="px-1.5 py-1.5 bg-black/20">
+                        <p className="text-[10px] font-medium text-slate-200 truncate">{rec.subjectName}</p>
+                        <p className="text-[10px] text-slate-500 leading-snug">{rec.eventTime}</p>
+                        {rec.isNew && <span className="text-[9px] text-emerald-400 font-semibold">NEW</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <Card>
             {isLoading ? (
@@ -327,7 +415,7 @@ export default function AccessMonitor() {
                     {/* Timestamp */}
                     <div className="px-2.5 py-2">
                       <p className="text-[10px] text-amber-400 font-semibold leading-none mb-0.5">Stranger</p>
-                      <p className="text-[11px] text-slate-400 leading-snug">{rec.time}</p>
+                      <p className="text-[11px] text-slate-400 leading-snug">{rec.checkin_time}</p>
                     </div>
                   </div>
                 );

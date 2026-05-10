@@ -138,38 +138,47 @@ export class U5Adapter {
   }
 
   /**
-   * Fetch punch records from the U5 machine.
-   * Endpoint: POST /getWorkNoteList  — body: {password, type: 2}
-   * type=2 selects face-recognition records.
-   * Each record represents one door access event.
+   * Fetch ALL punch records from the U5 machine across all pages.
+   * Endpoint: POST /getWorkNoteList — body: {password, type: 2, index: pageIndex}
+   * Machine paginates: response includes page_sum (total pages) and index (current page, 0-based).
+   * checkin_time is the actual field name for the punch timestamp (NOT "time").
    */
   async getAttendanceLogs(): Promise<{
     success: true;
-    data: Array<{ userId: string; time: string; type?: string | number; id_number?: string }>;
+    data: Array<{ userId: string; checkin_time: string; ispass?: number; pic?: string; id_number?: string }>;
   } | { success: false; code: number; message: string }> {
-    let res: Response;
-    try {
-      res = await fetch(`${this.base}/getWorkNoteList`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ password: this.password, type: 2 }),
-        signal:  AbortSignal.timeout(this.timeout),
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Network error reaching U5';
-      return { success: false, code: 0, message: msg };
-    }
+    type Record = { userId: string; checkin_time: string; ispass?: number; pic?: string; id_number?: string };
+    const all: Record[] = [];
+    let pageIndex = 0;
+    let pageSum   = 1;
 
-    if (!res.ok) return { success: false, code: res.status, message: `U5 HTTP ${res.status}` };
+    do {
+      let res: Response;
+      try {
+        res = await fetch(`${this.base}/getWorkNoteList`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ password: this.password, type: 2, index: pageIndex }),
+          signal:  AbortSignal.timeout(this.timeout),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Network error reaching U5';
+        return { success: false, code: 0, message: msg };
+      }
 
-    const data = await res.json() as {
-      code?: number;
-      data?: Array<{ userId: string; time: string; type?: string | number; id_number?: string }>;
-    };
-    if (data.code !== undefined && data.code !== U5_CODE_OK) {
-      return { success: false, code: data.code, message: `U5 attendance failed (code ${data.code})` };
-    }
-    return { success: true, data: data.data ?? [] };
+      if (!res.ok) return { success: false, code: res.status, message: `U5 HTTP ${res.status}` };
+
+      const raw  = await res.text();
+      const data = JSON.parse(raw) as { code?: number; page_sum?: number; data?: Record[] };
+      if (data.code !== undefined && data.code !== U5_CODE_OK) {
+        return { success: false, code: data.code, message: `U5 attendance failed (code ${data.code})` };
+      }
+      pageSum = data.page_sum ?? 1;
+      all.push(...(data.data ?? []));
+      pageIndex++;
+    } while (pageIndex < pageSum);
+
+    return { success: true, data: all };
   }
 
   /** Quick reachability check — returns true if U5 web UI responds. */

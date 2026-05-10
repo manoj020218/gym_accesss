@@ -91,7 +91,11 @@ export const accessApi = {
 
   syncAttendance: (deviceId: string) =>
     api
-      .post<{ imported: number; total: number }>(`/access-devices/${deviceId}/sync-attendance`)
+      .post<{
+        imported: number;
+        total:    number;
+        records:  Array<{ subjectName: string; eventTime: string; pic?: string; isNew: boolean }>;
+      }>(`/access-devices/${deviceId}/sync-attendance`)
       .then((r) => r.data),
 
   syncStatus: (deviceId: string) =>

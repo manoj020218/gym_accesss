@@ -282,62 +282,81 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
       const password   = device.machinePassword ?? '123456';
 
-      // 1. Fetch punch records from U5 machine
-      //    Endpoint: POST /getWorkNoteList  body: {password, type: 2}
-      //    type=2 selects face-recognition punch records
-      let attRecords: Array<{ userId: string; time: string; id_number?: string }> = [];
+      // Machine response record shape — actual field names confirmed from firmware logs
+      type WorkNote = {
+        userId?:       string | number;
+        id_number?:    string;
+        checkin_time:  string;   // NOT "time" — confirmed from raw response
+        ispass?:       number;   // 1 = door opened, 0 = denied
+        pic?:          string;   // base64 JPEG of captured face at punch moment
+        temp?:         string;
+      };
+
+      // 1. Fetch ALL pages from machine
+      //    Machine paginates: {page_sum, index (0-based), count, total} in response
+      //    Send {password, type, index} to request each page
+      let attRecords: WorkNote[] = [];
       try {
-        const r = await fetch(`${machineUrl}/getWorkNoteList`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password, type: 2 }),
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!r.ok) {
-          return reply.status(502).send({ error: `Machine responded with HTTP ${r.status}` });
-        }
-        const raw = await r.text();
-        req.log.info({ endpoint: '/getWorkNoteList', raw }, '[u5] getWorkNoteList response');
-        const d = JSON.parse(raw) as { code?: number; data?: typeof attRecords };
-        if (d.code !== undefined && d.code !== 200) {
-          return reply.status(502).send({ error: `Machine error code ${d.code}` });
-        }
-        attRecords = d.data ?? [];
+        let pageIndex = 0;
+        let pageSum   = 1;
+        do {
+          const r = await fetch(`${machineUrl}/getWorkNoteList`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, type: 2, index: pageIndex }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
+
+          const raw = await r.text();
+          req.log.info({ endpoint: '/getWorkNoteList', type: 2, page: pageIndex, raw }, '[u5] attendance response');
+
+          const d = JSON.parse(raw) as { code?: number; page_sum?: number; data?: WorkNote[] };
+          if (d.code !== undefined && d.code !== 200) {
+            return reply.status(502).send({ error: `Machine error code ${d.code}` });
+          }
+          pageSum = d.page_sum ?? 1;
+          attRecords.push(...(d.data ?? []));
+          pageIndex++;
+        } while (pageIndex < pageSum);
       } catch (e) {
         return reply.status(503).send({
           error: 'Cannot reach machine',
-          hint:  `Check that ${machineUrl} is accessible from this server. Error: ${(e as Error).message}`,
+          hint:  `${machineUrl} — ${(e as Error).message}`,
         });
       }
 
-      if (attRecords.length === 0) return reply.send({ imported: 0, total: 0 });
+      if (attRecords.length === 0) return reply.send({ imported: 0, total: 0, records: [] });
 
-      // 2. Upsert each record as an AccessEvent
-      //    Primary lookup: member.machineUsers[].machineUserId === rec.userId
-      //    (stored on the member at enrollment time — the machine's own userId)
-      //    Fallback: id_number in the punch record matches memberCode (some firmware includes it)
+      // 2. Upsert each record as an AccessEvent; collect results with captured pic for UI
+      type SyncRecord = { subjectName: string; eventTime: string; pic?: string; isNew: boolean };
+      const results: SyncRecord[] = [];
       let imported = 0;
+
       for (const rec of attRecords) {
-        const eventTime = new Date(rec.time);
+        const eventTime = new Date(rec.checkin_time);
         if (isNaN(eventTime.getTime())) continue;
 
+        const userId = String(rec.userId ?? '');
         const member =
-          await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': rec.userId }) ??
+          (userId && userId !== '-1'
+            ? await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': userId })
+            : null) ??
           (rec.id_number ? await Member.findOne({ memberCode: rec.id_number, branchId: device.branchId }) : null);
 
         if (!member) continue;
 
-        // Stable negative localSeq — deterministic per device+userId+time, avoids collision with edge-pushed events
         const seqHash = parseInt(
           createHash('md5')
-            .update(`${device.deviceCode}:${rec.userId}:${eventTime.getTime()}`)
+            .update(`${device.deviceCode}:${userId}:${eventTime.getTime()}`)
             .digest('hex')
             .slice(0, 10),
           16,
         );
         const localSeq = -seqHash;
 
+        let isNew = false;
         try {
-          await AccessEvent.findOneAndUpdate(
+          const res = await AccessEvent.findOneAndUpdate(
             { edgeDeviceId: device.deviceCode, subjectId: member._id.toString(), eventTime },
             {
               $setOnInsert: {
@@ -347,23 +366,30 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
                 subjectType:  'member',
                 subjectId:    member._id.toString(),
                 subjectName:  `${member.firstName} ${member.lastName}`,
-                decision:     'ALLOW',
+                decision:     rec.ispass === 0 ? 'DENY' : 'ALLOW',
                 identifierUsed: 'face',
                 localSeq,
                 eventTime,
                 syncedAt: new Date(),
               },
             },
-            { upsert: true },
-          );
-          imported++;
-        } catch { /* duplicate — already in DB */ }
+            { upsert: true, rawResult: true },
+          ) as unknown as { lastErrorObject?: { upserted?: unknown } };
+          isNew = !!(res?.lastErrorObject?.upserted);
+          if (isNew) imported++;
+        } catch { /* duplicate key — already in DB */ }
+
+        results.push({
+          subjectName: `${member.firstName} ${member.lastName}`,
+          eventTime:   rec.checkin_time,
+          pic:         rec.pic,
+          isNew,
+        });
       }
 
-      // Update device heartbeat since we just successfully reached it
       void AccessDevice.findByIdAndUpdate(device._id, { lastHeartbeatAt: new Date() });
 
-      return reply.send({ imported, total: attRecords.length });
+      return reply.send({ imported, total: attRecords.length, records: results });
     },
   );
 
@@ -432,29 +458,39 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
       const password   = device.machinePassword ?? '123456';
 
+      type StrangerNote = {
+        userId?:      string | number;
+        name?:        string;
+        checkin_time: string;
+        ispass?:      number;
+        pic?:         string;
+      };
+
       try {
-        const r = await fetch(`${machineUrl}/getWorkNoteList`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password, type: 1 }),
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!r.ok) return reply.status(502).send({ error: `Machine responded with HTTP ${r.status}` });
+        const all: StrangerNote[] = [];
+        let pageIndex = 0;
+        let pageSum   = 1;
+        do {
+          const r = await fetch(`${machineUrl}/getWorkNoteList`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password, type: 1, index: pageIndex }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
 
-        const raw = await r.text();
-        req.log.info({ endpoint: '/getWorkNoteList?type=1', raw }, '[u5] stranger-logs response');
+          const raw = await r.text();
+          req.log.info({ endpoint: '/getWorkNoteList', type: 1, page: pageIndex, raw }, '[u5] stranger-logs response');
 
-        const d = JSON.parse(raw) as {
-          code?: number;
-          data?: Array<{ userId: string | number; name?: string; time: string; pic?: string }>;
-        };
+          const d = JSON.parse(raw) as { code?: number; page_sum?: number; data?: StrangerNote[] };
+          if (d.code !== undefined && d.code !== 200) {
+            return reply.status(502).send({ error: `Machine error code ${d.code}` });
+          }
+          pageSum = d.page_sum ?? 1;
+          all.push(...(d.data ?? []));
+          pageIndex++;
+        } while (pageIndex < pageSum);
 
-        if (d.code !== undefined && d.code !== 200) {
-          return reply.status(502).send({ error: `Machine error code ${d.code}` });
-        }
-
-        const all      = d.data ?? [];
         const strangers = all.filter(e => String(e.userId) === '-1' || e.name === 'stranger');
-
         return reply.send({ total: strangers.length, data: strangers });
       } catch (e) {
         return reply.status(503).send({

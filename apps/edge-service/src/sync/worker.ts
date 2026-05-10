@@ -146,7 +146,7 @@ export async function syncU5Attendance(db: EdgeDB, log: BaseLogger): Promise<voi
   let latestTime = lastSync;
 
   for (const rec of records) {
-    const eventTime = new Date(rec.time);
+    const eventTime = new Date(rec.checkin_time);
     if (isNaN(eventTime.getTime())) continue;
     if (eventTime <= lastSync) continue;
 
