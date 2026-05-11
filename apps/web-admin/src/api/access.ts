@@ -31,6 +31,7 @@ export interface AccessDevice {
   mqttLiveEnabled?: boolean;
   mqttBrokerUrl?: string;
   mqttInfoTopic?: string;
+  mqttConnected?: boolean;
   pendingEventCount?: number;
   createdAt: string;
 }
@@ -98,7 +99,14 @@ export const accessApi = {
       .post<{
         imported: number;
         total:    number;
-        records:  Array<{ subjectName: string; eventTime: string; pic?: string; isNew: boolean }>;
+        records:  Array<{
+          subjectName?: string;
+          eventTime:    string;
+          pic?:         string;
+          isNew:        boolean;
+          matched:      boolean;
+          ispass:       number;
+        }>;
       }>(`/access-devices/${deviceId}/sync-attendance`)
       .then((r) => r.data),
 

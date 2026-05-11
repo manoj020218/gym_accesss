@@ -6,11 +6,11 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev":       "node --env-file=.env --import tsx --watch src/index.ts",
+    "dev": "node --env-file=.env --import tsx --watch src/index.ts",
     "dev:local": "tsx src/dev-server.ts",
     "start": "node dist/index.js",
-    "lint":  "tsc --noEmit",
-    "test":  "vitest run",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -24,12 +24,14 @@
     "node-cron": "^3.0.3",
     "pino": "^9.2.0",
     "pino-pretty": "^11.2.1",
+    "ws": "^8.20.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20.14.2",
     "@types/node-cron": "^3.0.11",
+    "@types/ws": "^8.18.1",
     "jsonwebtoken": "^9.0.2",
     "mongodb-memory-server": "^10.0.0",
     "tsx": "^4.15.6",

@@ -7,6 +7,10 @@ export interface Branch {
   phone?: string;
   isActive: boolean;
   createdAt: string;
+  accessHoursEnabled?: boolean;
+  accessHoursStart?: string;    // "HH:MM"
+  accessHoursEnd?: string;      // "HH:MM"
+  accessAllowedDays?: number[]; // 0=Sun … 6=Sat
 }
 
 export const branchApi = {

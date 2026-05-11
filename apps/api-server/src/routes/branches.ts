@@ -13,7 +13,11 @@ const CreateBody = z.object({
 });
 
 const UpdateBody = CreateBody.partial().extend({
-  isActive: z.boolean().optional(),
+  isActive:            z.boolean().optional(),
+  accessHoursEnabled:  z.boolean().optional(),
+  accessHoursStart:    z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  accessHoursEnd:      z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  accessAllowedDays:   z.array(z.number().int().min(0).max(6)).optional(),
 });
 
 const branchRoutes: FastifyPluginAsync = async (fastify) => {

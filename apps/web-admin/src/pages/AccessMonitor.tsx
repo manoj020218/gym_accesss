@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Layout } from '../components/layout/Layout';
 import { Card } from '../components/ui/Card';
@@ -11,6 +11,10 @@ import { accessApi } from '../api/access';
 import { useAuthStore } from '../store/auth';
 import { fmtDatetime } from '../utils/format';
 import { toast } from '../store/toast';
+
+const WS_BASE = (import.meta.env['VITE_API_URL'] ?? 'http://localhost:8080')
+  .replace('https://', 'wss://')
+  .replace('http://', 'ws://');
 
 const ZONE_OPTIONS = [
   { value: '', label: 'All Zones' },
@@ -32,15 +36,17 @@ type Segment = 'members' | 'strangers';
 
 export default function AccessMonitor() {
   const qc = useQueryClient();
-  const { selectedBranchId } = useAuthStore();
+  const { selectedBranchId, token: accessToken } = useAuthStore();
   const branchId = selectedBranchId ?? undefined;
 
   const [segment, setSegment]   = useState<Segment>('members');
   const [zone, setZone]         = useState('');
   const [decision, setDecision] = useState('');
   const [page, setPage]         = useState(1);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Member access events
+  // Member access events — no polling; WS triggers refetch
   const { data, isLoading, refetch: refetchEvents } = useQuery({
     queryKey: ['access-events', branchId, zone, decision, page],
     queryFn:  () =>
@@ -51,8 +57,39 @@ export default function AccessMonitor() {
         page,
         limit:    30,
       }),
-    refetchInterval: segment === 'members' ? 8_000 : false,
   });
+
+  // WebSocket — real-time event push from server
+  useEffect(() => {
+    if (!accessToken) return;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      const ws = new WebSocket(`${WS_BASE}/api/v1/ws?token=${accessToken}`);
+      wsRef.current = ws;
+
+      ws.onopen  = () => setWsConnected(true);
+      ws.onclose = () => {
+        setWsConnected(false);
+        reconnectTimer = setTimeout(connect, 5_000);
+      };
+      ws.onerror = () => ws.close();
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data as string) as { type: string };
+          if (msg.type === 'access_event') {
+            void qc.invalidateQueries({ queryKey: ['access-events'] });
+          }
+        } catch { /* ignore */ }
+      };
+    }
+
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer);
+      wsRef.current?.close();
+    };
+  }, [accessToken]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery({
     queryKey: ['devices', branchId],
@@ -71,18 +108,27 @@ export default function AccessMonitor() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const activeDeviceId = selectedDeviceId || u5Devices[0]?.deviceId || '';
 
-  // Member sync results — returned records include captured face pics
+  // Member sync results — ALL records from machine (matched + unmatched) with captured pics
   const [syncResults, setSyncResults] = useState<{
     imported: number; total: number;
-    records: Array<{ subjectName: string; eventTime: string; pic?: string; isNew: boolean }>;
+    records: Array<{
+      subjectName?: string; eventTime: string; pic?: string;
+      isNew: boolean; matched: boolean; ispass: number;
+    }>;
   } | null>(null);
+  const [showSyncGrid, setShowSyncGrid] = useState(false);
 
   const syncMembersMut = useMutation({
     mutationFn: () => accessApi.syncAttendance(activeDeviceId),
     onSuccess: (res) => {
       setSyncResults(res);
+      setShowSyncGrid(true);
       void qc.invalidateQueries({ queryKey: ['access-events'] });
-      toast.success(`Synced: ${res.imported} new record${res.imported !== 1 ? 's' : ''} from ${res.total} total`);
+      const unmatched = res.records.filter(r => !r.matched).length;
+      toast.success(
+        `${res.imported} new imported from ${res.total} total` +
+        (unmatched > 0 ? ` · ${unmatched} unmatched (re-enroll needed)` : ''),
+      );
     },
     onError: () => toast.error('Could not reach machine — check device connection'),
   });
@@ -108,7 +154,13 @@ export default function AccessMonitor() {
       {!devicesLoading && devices.length > 0 && (
         <div className="flex items-center gap-3 mb-5 flex-wrap">
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full blink" />
+            <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-500 blink' : 'bg-slate-600'}`} />
+            <span className={`text-xs font-semibold ${wsConnected ? 'text-emerald-400' : 'text-slate-500'}`}>
+              {wsConnected ? 'Live' : 'Connecting…'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-emerald-500 rounded-full" />
             <span className="text-xs text-emerald-400 font-semibold">{online} online</span>
           </div>
           {offline > 0 && (
@@ -128,6 +180,11 @@ export default function AccessMonitor() {
             >
               {d.name} · {d.zone.replace(/_/g, ' ')}
               {d.pendingEventCount ? ` · ${d.pendingEventCount} pending` : ''}
+              {d.mqttLiveEnabled && (
+                <span className={`ml-1.5 ${d.mqttConnected ? 'text-purple-400' : 'text-slate-500'}`}>
+                  · MQTT {d.mqttConnected ? '●' : '○'}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -191,28 +248,33 @@ export default function AccessMonitor() {
               <Button variant="outline" size="sm" onClick={() => void refetchEvents()}>
                 Refresh
               </Button>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-emerald-500 rounded-full blink" />
-                <span className="text-xs text-muted">Auto · {total.toLocaleString()} events</span>
-              </div>
+              <span className="text-xs text-muted">{total.toLocaleString()} events</span>
             </div>
           </div>
 
-          {/* Sync results panel — captured face photos from last sync */}
-          {syncResults && syncResults.records.length > 0 && (
-            <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-semibold text-slate-300">
-                  Last Sync — {syncResults.imported} new / {syncResults.total} total from machine
-                </span>
-                <button
-                  onClick={() => setSyncResults(null)}
-                  className="text-[11px] text-slate-500 hover:text-slate-300"
-                >
+          {/* Sync results — "What the machine saw" face-capture grid */}
+          {syncResults && showSyncGrid && (
+            <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.03]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-slate-200">What the Machine Saw</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.06] text-slate-400">
+                    {syncResults.total} total · {syncResults.imported} new imported
+                  </span>
+                  {syncResults.records.filter(r => !r.matched).length > 0 && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-900/30 border border-amber-500/20 text-amber-400">
+                      {syncResults.records.filter(r => !r.matched).length} unmatched — re-enroll needed
+                    </span>
+                  )}
+                </div>
+                <button onClick={() => setShowSyncGrid(false)} className="text-[11px] text-slate-500 hover:text-slate-300">
                   Dismiss ×
                 </button>
               </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+
+              {/* Face capture grid */}
+              <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
                 {syncResults.records.map((rec, i) => {
                   const src = rec.pic
                     ? (rec.pic.startsWith('data:') ? rec.pic : `data:image/jpeg;base64,${rec.pic}`)
@@ -220,21 +282,37 @@ export default function AccessMonitor() {
                   return (
                     <div
                       key={i}
-                      className={`flex-shrink-0 w-24 rounded-lg overflow-hidden border ${rec.isNew ? 'border-emerald-500/30' : 'border-white/[0.06]'}`}
+                      title={rec.matched ? `${rec.subjectName} — ${rec.eventTime}` : `Unmatched — ${rec.eventTime}`}
+                      className={`rounded-lg overflow-hidden border transition-colors ${
+                        !rec.matched   ? 'border-amber-500/40'
+                        : rec.isNew    ? 'border-emerald-500/40'
+                                       : 'border-white/[0.07]'
+                      }`}
                     >
-                      <div className="w-24 h-24 bg-black/30 flex items-center justify-center">
+                      {/* Photo */}
+                      <div className="aspect-square bg-black/40 flex items-center justify-center">
                         {src ? (
-                          <img src={src} alt={rec.subjectName} className="w-full h-full object-cover" loading="lazy" />
+                          <img src={src} alt="" className="w-full h-full object-cover" loading="lazy" />
                         ) : (
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-slate-600">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-6 h-6 text-slate-600">
                             <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                           </svg>
                         )}
                       </div>
-                      <div className="px-1.5 py-1.5 bg-black/20">
-                        <p className="text-[10px] font-medium text-slate-200 truncate">{rec.subjectName}</p>
-                        <p className="text-[10px] text-slate-500 leading-snug">{rec.eventTime}</p>
-                        {rec.isNew && <span className="text-[9px] text-emerald-400 font-semibold">NEW</span>}
+                      {/* Label */}
+                      <div className="px-1 py-1 bg-black/30">
+                        <p className={`text-[9px] font-semibold truncate leading-none mb-0.5 ${rec.matched ? 'text-slate-200' : 'text-amber-400'}`}>
+                          {rec.matched ? (rec.subjectName ?? '—') : 'Unmatched'}
+                        </p>
+                        <p className="text-[9px] text-slate-600 truncate leading-none">
+                          {rec.eventTime.slice(11, 16)}
+                        </p>
+                        <div className="flex gap-1 mt-0.5">
+                          {rec.ispass === 1
+                            ? <span className="text-[8px] text-emerald-400 font-bold">OPEN</span>
+                            : <span className="text-[8px] text-red-400 font-bold">DENY</span>}
+                          {rec.isNew && <span className="text-[8px] text-blue-400 font-bold">NEW</span>}
+                        </div>
                       </div>
                     </div>
                   );

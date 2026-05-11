@@ -1,14 +1,17 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { AccessDevice } from '../models/AccessDevice.js';
-import { AccessEvent }  from '../models/AccessEvent.js';
-import { SyncCheckpoint } from '../models/SyncCheckpoint.js';
-import { Member } from '../models/Member.js';
-import { Staff }  from '../models/Staff.js';
-import { config } from '../config.js';
-import type { EdgeMemberRecord } from '@edge-gym/shared-types';
-import { MemberStatus } from '@edge-gym/shared-types';
+import { AccessDevice }    from '../models/AccessDevice.js';
+import { AccessEvent }     from '../models/AccessEvent.js';
+import { SyncCheckpoint }  from '../models/SyncCheckpoint.js';
+import { Member }          from '../models/Member.js';
+import { Membership }      from '../models/Membership.js';
+import { Staff }           from '../models/Staff.js';
+import { Branch }          from '../models/Branch.js';
+import { config }          from '../config.js';
+import { broadcaster }     from '../lib/event-broadcaster.js';
+import type { EdgeMemberRecord, EdgeAccessPolicy } from '@edge-gym/shared-types';
+import { MemberStatus, Zone } from '@edge-gym/shared-types';
 
 const HeartbeatBody = z.object({
   edgeDeviceId:    z.string(),
@@ -19,6 +22,7 @@ const HeartbeatBody = z.object({
   uptime:          z.number(),
   edgeServiceIp:   z.string().optional(),
   edgeServicePort: z.number().optional(),
+  mqttConnected:   z.boolean().optional(),
 });
 
 const PushBody = z.object({
@@ -86,8 +90,9 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
       );
 
       const edgeUpdate: Record<string, unknown> = { lastHeartbeatAt: new Date() };
-      if (body.edgeServiceIp)   edgeUpdate['edgeServiceIp']   = body.edgeServiceIp;
-      if (body.edgeServicePort) edgeUpdate['edgeServicePort'] = body.edgeServicePort;
+      if (body.edgeServiceIp)            edgeUpdate['edgeServiceIp']   = body.edgeServiceIp;
+      if (body.edgeServicePort)          edgeUpdate['edgeServicePort'] = body.edgeServicePort;
+      if (body.mqttConnected !== undefined) edgeUpdate['mqttConnected'] = body.mqttConnected;
 
       await AccessDevice.findOneAndUpdate(
         { deviceCode: body.edgeDeviceId },
@@ -124,11 +129,23 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
       const branchId     = req.query.branchId;
       const edgeDeviceId = req.query.edgeDeviceId;
 
-      const [members, staffList, device] = await Promise.all([
+      const [members, staffList, device, branch] = await Promise.all([
         Member.find({ allowedBranchIds: branchId }),
         Staff.find({ branchId, isActive: true }),
         AccessDevice.findOne({ deviceCode: edgeDeviceId }),
+        Branch.findById(branchId).lean(),
       ]);
+
+      // Build membershipId → endDate map in one query (avoids N+1)
+      const memberIds = members.map(m => m.id as string);
+      const activeMemberships = await Membership.find({
+        memberId: { $in: memberIds },
+        status:   'active',
+        endDate:  { $gte: new Date() },
+      }).select('memberId endDate').lean();
+      const membershipEndMap = new Map(
+        activeMemberships.map(ms => [ms.memberId, ms.endDate]),
+      );
 
       const edgeMembers: EdgeMemberRecord[] = members.map(m => ({
         memberId:         m.id as string,
@@ -136,7 +153,7 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         rfidCardId:       m.rfidCardId,
         qrToken:          m.qrToken,
         status:           m.status as MemberStatus,
-        activeUntil:      m.createdAt.toISOString(),
+        activeUntil:      membershipEndMap.get(m.id)?.toISOString() ?? new Date(0).toISOString(),
         allowedZones:     m.allowedZones,
         allowedBranchIds: m.allowedBranchIds,
         planType:         'basic',
@@ -153,6 +170,21 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         rfidCardId:   s.rfidCardId,
       }));
 
+      // Build zone access policies from branch access-hours settings
+      const policies: EdgeAccessPolicy[] = [];
+      if (branch?.accessHoursEnabled && branch.accessHoursStart && branch.accessHoursEnd) {
+        policies.push({
+          zone:               Zone.MainEntry,
+          allowedPlanTypes:   [],
+          timeWindows:        [{
+            dayOfWeek: branch.accessAllowedDays ?? [0, 1, 2, 3, 4, 5, 6],
+            startTime: branch.accessHoursStart,
+            endTime:   branch.accessHoursEnd,
+          }],
+          antiPassbackEnabled: false,
+        });
+      }
+
       // Include MQTT live-access config so edge service can connect without a restart
       const mqttConfig = device?.mqttLiveEnabled ? {
         brokerUrl:  device.mqttBrokerUrl,
@@ -165,7 +197,7 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         policyVersion: POLICY_VERSION,
         members:  edgeMembers,
         staff:    edgeStaff,
-        policies: [],
+        policies,
         blocklist: members.filter(m => m.status === MemberStatus.Blocked).map(m => m.id as string),
         generatedAt: new Date().toISOString(),
         mqttConfig,
@@ -199,7 +231,7 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
 
       for (const ev of body.events) {
         try {
-          await AccessEvent.findOneAndUpdate(
+          const doc = await AccessEvent.findOneAndUpdate(
             { edgeDeviceId: body.edgeDeviceId, localSeq: ev.localSeq },
             {
               edgeDeviceId: body.edgeDeviceId,
@@ -215,9 +247,11 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
               eventTime:    new Date(ev.eventTime),
               syncedAt:     new Date(),
             },
-            { upsert: true },
+            { upsert: true, new: true },
           );
           accepted.push(ev.localSeq);
+          // Push to any connected browser clients in real-time
+          if (doc) broadcaster.broadcast('access_event', doc.toObject());
         } catch (err) {
           rejected.push({ eventId: ev.id, reason: (err as Error).message });
         }

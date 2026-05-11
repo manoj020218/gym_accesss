@@ -118,6 +118,7 @@ export async function heartbeat(db: EdgeDB, log: BaseLogger): Promise<void> {
       uptime:          Math.floor(process.uptime()),
       edgeServiceIp:   getLanIp(),
       edgeServicePort: config.EDGE_PORT,
+      mqttConnected:   mqttListener.isConnected,
     }),
   });
   log.debug('[sync] Heartbeat sent');

@@ -15,7 +15,7 @@ import { toast } from '../store/toast';
 import { api } from '../api/client';
 import { fmtDate } from '../utils/format';
 
-type Tab = 'branches' | 'profile' | 'system' | 'liveaccess';
+type Tab = 'branches' | 'profile' | 'system' | 'liveaccess' | 'accesshours';
 
 function BranchForm({ branch, onSuccess }: { branch?: Branch; onSuccess: () => void }) {
   const [form, setForm] = useState({
@@ -89,32 +89,41 @@ function LiveAccessWizard() {
   const u5Devices = devices.filter(d => d.ipAddress);
 
   const [form, setForm] = useState({
-    deviceId:     '',
-    machineSn:    '',
-    brokerUrl:    'mqtt://localhost:1883',
-    infoPrefix:   'info/',
-    mqttToken:    '',
-    username:     '',
-    password:     '',
+    deviceId:    '',
+    machineSn:   '',
+    brokerUrl:   'mqtt://localhost:1883',
+    fullTopic:   '',    // user sees and can edit the full topic directly
+    username:    '',
+    password:    '',
   });
 
-  // Auto-select first U5 device
+  // Auto-select first U5 device and pre-fill defaults
   useEffect(() => {
     if (u5Devices.length > 0 && !form.deviceId) {
       const d = u5Devices[0];
+      const sn = d.machineSn ?? '';
       setForm(f => ({
         ...f,
         deviceId:  d.deviceId,
-        machineSn: d.machineSn ?? '',
+        machineSn: sn,
         brokerUrl: d.mqttBrokerUrl ?? 'mqtt://localhost:1883',
-        mqttToken: '',
+        // Machine SN is used as both token and device-id in the topic (confirmed by user)
+        fullTopic: d.mqttInfoTopic ?? (sn ? `info/${sn}/${sn}` : ''),
       }));
     }
   }, [u5Devices.length]);
 
-  const computedTopic = form.infoPrefix && form.mqttToken && form.machineSn
-    ? `${form.infoPrefix}${form.mqttToken}/${form.machineSn}`
-    : '';
+  // When SN changes, auto-update topic if topic hasn't been manually edited
+  const handleSnChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const sn = e.target.value;
+    setForm(f => ({
+      ...f,
+      machineSn: sn,
+      fullTopic: sn ? `info/${sn}/${sn}` : f.fullTopic,
+    }));
+  };
+
+  const computedTopic = form.fullTopic;
 
   const set = (k: keyof typeof form) =>
     (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -254,56 +263,43 @@ function LiveAccessWizard() {
       {/* Step 2 — Topic */}
       {step === 2 && (
         <Card className="p-7">
-          <h2 className="text-base font-bold text-slate-200 mb-1">MQTT Topic Configuration</h2>
+          <h2 className="text-base font-bold text-slate-200 mb-1">MQTT Topic</h2>
           <p className="text-xs text-muted mb-6">
-            The U5 machine publishes attendance records to a topic in the format:
-            <code className="ml-1 px-1.5 py-0.5 rounded bg-white/[0.08] text-purple-300 text-[11px]">
-              info_prefix / token / machine_sn
-            </code>
+            Enter your machine's serial number — the subscription topic is auto-generated.
+            You can edit the full topic directly if your machine uses a different format.
           </p>
 
           <div className="space-y-4">
             <Input
               label="Machine Serial Number (SN)"
               value={form.machineSn}
-              onChange={set('machineSn')}
+              onChange={handleSnChange}
               placeholder="ZY20240703003"
-              helpText="Found on the device label or machine About screen. E.g. ZY20240703003"
-            />
-            <Input
-              label="MQTT Token"
-              value={form.mqttToken}
-              onChange={set('mqttToken')}
-              placeholder="mytoken"
-              helpText="The token your U5 machine is configured to use in its MQTT topic. Check machine Network → MQTT settings."
-            />
-            <Input
-              label="Info Topic Prefix"
-              value={form.infoPrefix}
-              onChange={set('infoPrefix')}
-              placeholder="info/"
-              helpText="Usually 'info/' — check the machine's MQTT config if you changed it."
+              helpText="Printed on the device label or shown in machine About screen."
             />
 
-            {/* Live preview */}
-            <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] px-4 py-3">
-              <p className="text-[11px] text-muted mb-1 font-semibold uppercase tracking-wider">Computed subscription topic</p>
-              {computedTopic ? (
-                <code className="text-sm text-emerald-400 font-mono break-all">{computedTopic}</code>
-              ) : (
-                <p className="text-xs text-slate-600 italic">Fill in all fields above to see the computed topic</p>
-              )}
-              <p className="text-[10px] text-slate-600 mt-1">The edge service will subscribe to this topic on your broker.</p>
+            {/* Full topic — editable, auto-filled from SN */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                Subscription Topic
+                <span className="ml-2 text-[10px] font-normal text-purple-400">auto-filled · edit if needed</span>
+              </label>
+              <input
+                value={form.fullTopic}
+                onChange={(e) => setForm(f => ({ ...f, fullTopic: e.target.value }))}
+                placeholder="info/ZY20240703003/ZY20240703003"
+                className="w-full px-3 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-emerald-400 font-mono focus:outline-none focus:border-purple-500/50"
+              />
+              <p className="text-[11px] text-muted mt-1.5">
+                Format: <code className="text-purple-300">info/</code> + <code className="text-purple-300">SN</code> + <code className="text-purple-300">/SN</code>.
+                The machine uses its own SN as both token and device-id in the MQTT topic.
+              </p>
             </div>
           </div>
 
           <div className="flex gap-3 mt-6">
             <Button variant="outline" onClick={() => setStep(1)}>← Back</Button>
-            <Button
-              onClick={() => setStep(3)}
-              disabled={!computedTopic}
-              className="flex-1"
-            >
+            <Button onClick={() => setStep(3)} disabled={!computedTopic || !form.machineSn} className="flex-1">
               Next →
             </Button>
           </div>
@@ -407,6 +403,190 @@ function LiveAccessWizard() {
   );
 }
 
+// ── Access Hours Settings ──────────────────────────────────────────────────────
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function AccessHoursSettings() {
+  const { selectedBranchId } = useAuthStore();
+  const qc = useQueryClient();
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches'],
+    queryFn:  () => branchApi.list(),
+  });
+
+  const [selectedId, setSelectedId] = useState<string>(selectedBranchId ?? '');
+  const activeBranch = branches.find(b => b._id === selectedId) ?? branches[0];
+
+  const [form, setForm] = useState({
+    enabled:     false,
+    start:       '06:00',
+    end:         '22:00',
+    allowedDays: [0, 1, 2, 3, 4, 5, 6] as number[],
+  });
+
+  // Sync form with selected branch
+  useEffect(() => {
+    if (!activeBranch) return;
+    setForm({
+      enabled:     activeBranch.accessHoursEnabled  ?? false,
+      start:       activeBranch.accessHoursStart     ?? '06:00',
+      end:         activeBranch.accessHoursEnd       ?? '22:00',
+      allowedDays: activeBranch.accessAllowedDays    ?? [0, 1, 2, 3, 4, 5, 6],
+    });
+    setSelectedId(activeBranch._id);
+  }, [activeBranch?._id]);
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      branchApi.update(activeBranch!._id, {
+        accessHoursEnabled: form.enabled,
+        accessHoursStart:   form.start,
+        accessHoursEnd:     form.end,
+        accessAllowedDays:  form.allowedDays,
+      }),
+    onSuccess: () => {
+      toast.success('Access hours saved — edge service will pick up on next sync');
+      void qc.invalidateQueries({ queryKey: ['branches'] });
+    },
+    onError: () => toast.error('Failed to save access hours'),
+  });
+
+  const toggleDay = (d: number) =>
+    setForm(f => ({
+      ...f,
+      allowedDays: f.allowedDays.includes(d)
+        ? f.allowedDays.filter(x => x !== d)
+        : [...f.allowedDays, d].sort(),
+    }));
+
+  return (
+    <div className="max-w-xl">
+      {branches.length > 1 && (
+        <div className="mb-5">
+          <label className="block text-xs font-semibold text-slate-400 mb-1.5">Branch</label>
+          <div className="flex flex-wrap gap-2">
+            {branches.map(b => (
+              <button
+                key={b._id}
+                onClick={() => setSelectedId(b._id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  selectedId === b._id
+                    ? 'bg-purple-600 border-purple-500 text-white'
+                    : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!activeBranch ? null : (
+        <Card className="p-6 space-y-6">
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-200">Enable Access Hours</p>
+              <p className="text-xs text-muted mt-0.5">
+                When on, members can only enter during the allowed time window.
+                Expired or outside-hours scans will be denied — door will not open.
+              </p>
+            </div>
+            <button
+              onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
+              className={`relative w-12 h-6 rounded-full transition-colors ${
+                form.enabled ? 'bg-purple-600' : 'bg-white/[0.1]'
+              }`}
+            >
+              <span
+                className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                  form.enabled ? 'translate-x-7' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {form.enabled && (
+            <>
+              {/* Time range */}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 mb-3">Daily Access Window</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <label className="block text-[11px] text-muted mb-1">Opens</label>
+                    <input
+                      type="time"
+                      value={form.start}
+                      onChange={e => setForm(f => ({ ...f, start: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-slate-200 focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+                  <span className="text-muted text-sm mt-4">to</span>
+                  <div className="flex-1">
+                    <label className="block text-[11px] text-muted mb-1">Closes</label>
+                    <input
+                      type="time"
+                      value={form.end}
+                      onChange={e => setForm(f => ({ ...f, end: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-slate-200 focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Days of week */}
+              <div>
+                <p className="text-xs font-semibold text-slate-400 mb-3">Allowed Days</p>
+                <div className="flex gap-2">
+                  {DAYS.map((day, i) => (
+                    <button
+                      key={day}
+                      onClick={() => toggleDay(i)}
+                      className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                        form.allowedDays.includes(i)
+                          ? 'bg-purple-600 text-white'
+                          : 'bg-white/[0.05] text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  ))}
+                </div>
+                {form.allowedDays.length === 0 && (
+                  <p className="text-[11px] text-red-400 mt-1.5">At least one day must be selected.</p>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 text-xs text-slate-400">
+                Members can access from <span className="text-slate-200 font-semibold">{form.start}</span> to{' '}
+                <span className="text-slate-200 font-semibold">{form.end}</span> on{' '}
+                <span className="text-slate-200 font-semibold">
+                  {form.allowedDays.length === 7
+                    ? 'all days'
+                    : form.allowedDays.map(d => DAYS[d]).join(', ')}
+                </span>. Scans outside this window will be denied and the door will not open.
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveMut.mutate()}
+              loading={saveMut.isPending}
+              disabled={form.enabled && form.allowedDays.length === 0}
+            >
+              Save Access Hours
+            </Button>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { user } = useAuthStore();
   const { isOwner } = useRole();
@@ -448,6 +628,7 @@ export default function Settings() {
   const tabs = [
     ...(isOwner ? [{ id: 'branches' as Tab, label: 'Branches' }] : []),
     { id: 'profile'     as Tab, label: 'My Profile' },
+    { id: 'accesshours' as Tab, label: 'Access Hours' },
     { id: 'liveaccess'  as Tab, label: 'Live Access' },
     { id: 'system'      as Tab, label: 'System Health' },
   ];
@@ -582,6 +763,9 @@ export default function Settings() {
           </Card>
         </div>
       )}
+
+      {/* ACCESS HOURS */}
+      {tab === 'accesshours' && <AccessHoursSettings />}
 
       {/* LIVE ACCESS */}
       {tab === 'liveaccess' && <LiveAccessWizard />}

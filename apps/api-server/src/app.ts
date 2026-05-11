@@ -1,7 +1,9 @@
 import Fastify from 'fastify';
 import cors    from '@fastify/cors';
 import jwt     from '@fastify/jwt';
+import { WebSocketServer } from 'ws';
 import { config } from './config.js';
+import { broadcaster } from './lib/event-broadcaster.js';
 
 import firebasePlugin from './plugins/firebase.js';
 import mongoPlugin    from './plugins/mongodb.js';
@@ -85,6 +87,43 @@ export async function buildApp() {
       error:      isZodError ? 'Validation Error' : (err.name ?? 'Internal Server Error'),
       message:    err.message,
     });
+  });
+
+  // ── WebSocket server — real-time event push to browser ───────────────────────
+  // Clients connect at ws(s)://<host>/api/v1/ws?token=<JWT>
+  const wss = new WebSocketServer({ noServer: true });
+
+  wss.on('connection', (ws) => {
+    broadcaster.add(ws);
+    fastify.log.debug('[ws] Client connected — total: ' + broadcaster.clientCount);
+
+    const ping = setInterval(() => {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ping' }));
+    }, 25_000);
+
+    ws.on('close',  () => { broadcaster.remove(ws); clearInterval(ping); });
+    ws.on('error',  () => { broadcaster.remove(ws); clearInterval(ping); });
+  });
+
+  fastify.server.on('upgrade', (req, socket, head) => {
+    const url   = new URL(req.url ?? '/', 'http://localhost');
+    if (url.pathname !== '/api/v1/ws') {
+      socket.destroy();
+      return;
+    }
+    const token = url.searchParams.get('token');
+    if (!token) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    try {
+      fastify.jwt.verify(token);
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    } catch {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+    }
   });
 
   return fastify;

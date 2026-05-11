@@ -7,6 +7,11 @@ export interface IBranch extends Document {
   timezone: string;
   isActive: boolean;
   ownerId: string;
+  // Access hours — when enabled, edge service enforces time-window at door
+  accessHoursEnabled: boolean;
+  accessHoursStart: string;    // "HH:MM", e.g. "06:00"
+  accessHoursEnd: string;      // "HH:MM", e.g. "22:00"
+  accessAllowedDays: number[]; // 0=Sun … 6=Sat, default all 7
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +24,10 @@ const branchSchema = new Schema<IBranch>(
     timezone:  { type: String, default: 'Asia/Kolkata' },
     isActive:  { type: Boolean, default: true },
     ownerId:   { type: String, required: true, index: true },
+    accessHoursEnabled: { type: Boolean, default: false },
+    accessHoursStart:   { type: String, default: '00:00' },
+    accessHoursEnd:     { type: String, default: '23:59' },
+    accessAllowedDays:  { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
   },
   { timestamps: true },
 );

@@ -169,6 +169,11 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         lastHeartbeat:    d.lastHeartbeatAt?.toISOString(),
         ipAddress:        d.ipAddress,
         port:             d.port,
+        machineSn:        d.machineSn,
+        mqttLiveEnabled:  d.mqttLiveEnabled,
+        mqttBrokerUrl:    d.mqttBrokerUrl,
+        mqttInfoTopic:    d.mqttInfoTopic,
+        mqttConnected:    d.mqttConnected,
         pendingEventCount: 0,
         createdAt:        d.createdAt.toISOString(),
       };
@@ -327,8 +332,17 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
       if (attRecords.length === 0) return reply.send({ imported: 0, total: 0, records: [] });
 
-      // 2. Upsert each record as an AccessEvent; collect results with captured pic for UI
-      type SyncRecord = { subjectName: string; eventTime: string; pic?: string; isNew: boolean };
+      // 2. Upsert each matched record as an AccessEvent.
+      //    ALL records are returned to the UI (matched + unmatched) so the captured
+      //    face photos are always visible — unmatched means re-enrollment needed.
+      type SyncRecord = {
+        subjectName?: string;   // undefined = no member matched
+        eventTime:   string;
+        pic?:        string;    // base64 JPEG captured at scan moment
+        isNew:       boolean;
+        matched:     boolean;
+        ispass:      number;    // 1=door opened, 0=denied
+      };
       const results: SyncRecord[] = [];
       let imported = 0;
 
@@ -343,47 +357,48 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
             : null) ??
           (rec.id_number ? await Member.findOne({ memberCode: rec.id_number, branchId: device.branchId }) : null);
 
-        if (!member) continue;
-
-        const seqHash = parseInt(
-          createHash('md5')
-            .update(`${device.deviceCode}:${userId}:${eventTime.getTime()}`)
-            .digest('hex')
-            .slice(0, 10),
-          16,
-        );
-        const localSeq = -seqHash;
-
         let isNew = false;
-        try {
-          const res = await AccessEvent.findOneAndUpdate(
-            { edgeDeviceId: device.deviceCode, subjectId: member._id.toString(), eventTime },
-            {
-              $setOnInsert: {
-                edgeDeviceId: device.deviceCode,
-                branchId:     device.branchId,
-                zone:         'main_entry',
-                subjectType:  'member',
-                subjectId:    member._id.toString(),
-                subjectName:  `${member.firstName} ${member.lastName}`,
-                decision:     rec.ispass === 0 ? 'DENY' : 'ALLOW',
-                identifierUsed: 'face',
-                localSeq,
-                eventTime,
-                syncedAt: new Date(),
+        if (member) {
+          const seqHash = parseInt(
+            createHash('md5')
+              .update(`${device.deviceCode}:${userId}:${eventTime.getTime()}`)
+              .digest('hex')
+              .slice(0, 10),
+            16,
+          );
+          try {
+            const res = await AccessEvent.findOneAndUpdate(
+              { edgeDeviceId: device.deviceCode, subjectId: member._id.toString(), eventTime },
+              {
+                $setOnInsert: {
+                  edgeDeviceId:   device.deviceCode,
+                  branchId:       device.branchId,
+                  zone:           'main_entry',
+                  subjectType:    'member',
+                  subjectId:      member._id.toString(),
+                  subjectName:    `${member.firstName} ${member.lastName}`,
+                  decision:       rec.ispass === 0 ? 'DENY' : 'ALLOW',
+                  identifierUsed: 'face',
+                  localSeq:       -seqHash,
+                  eventTime,
+                  syncedAt:       new Date(),
+                },
               },
-            },
-            { upsert: true, rawResult: true },
-          ) as unknown as { lastErrorObject?: { upserted?: unknown } };
-          isNew = !!(res?.lastErrorObject?.upserted);
-          if (isNew) imported++;
-        } catch { /* duplicate key — already in DB */ }
+              { upsert: true, rawResult: true },
+            ) as unknown as { lastErrorObject?: { upserted?: unknown } };
+            isNew = !!(res?.lastErrorObject?.upserted);
+            if (isNew) imported++;
+          } catch { /* duplicate */ }
+        }
 
+        // Always push to results — UI shows pic regardless of member match
         results.push({
-          subjectName: `${member.firstName} ${member.lastName}`,
+          subjectName: member ? `${member.firstName} ${member.lastName}` : undefined,
           eventTime:   rec.checkin_time,
           pic:         rec.pic,
           isNew,
+          matched:     !!member,
+          ispass:      rec.ispass ?? 1,
         });
       }
 

@@ -33,6 +33,7 @@ export interface IAccessDevice extends Document {
   mqttUsername?: string;
   mqttPassword?: string;
   mqttLiveEnabled?: boolean; // true once configured and edge service confirmed connection
+  mqttConnected?: boolean;  // live status: updated on each heartbeat from edge service
 }
 
 const accessDeviceSchema = new Schema<IAccessDevice>(
@@ -56,6 +57,7 @@ const accessDeviceSchema = new Schema<IAccessDevice>(
     mqttUsername:    String,
     mqttPassword:    String,
     mqttLiveEnabled: Boolean,
+    mqttConnected:   Boolean,
     relayEnabled:  { type: Boolean, default: true },
     antiPassback:  { type: String, default: 'disabled' },
     secretKeyHash: { type: String, required: true, select: false },
