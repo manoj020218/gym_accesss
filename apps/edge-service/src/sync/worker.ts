@@ -5,6 +5,7 @@ import { config }      from '../config.js';
 import { randomUUID }  from 'crypto';
 import type { BaseLogger } from 'pino';
 import { U5Adapter }   from '../hardware/u5/index.js';
+import { mqttListener } from '../mqtt/client.js';
 
 function getLanIp(): string | undefined {
   for (const iface of Object.values(networkInterfaces())) {
@@ -35,6 +36,7 @@ export async function pull(db: EdgeDB, log: BaseLogger): Promise<void> {
     members:       Parameters<typeof db.upsertMembers>[0];
     blocklist?:    string[];
     policyVersion: number;
+    mqttConfig?:   { brokerUrl: string; infoTopic: string; username?: string; password?: string } | null;
   };
 
   if (data.members?.length) {
@@ -45,6 +47,20 @@ export async function pull(db: EdgeDB, log: BaseLogger): Promise<void> {
   if (data.blocklist) {
     db.upsertBlocklist(data.blocklist);
     log.debug(`[sync] Blocklist synced: ${data.blocklist.length} entries`);
+  }
+
+  // Start or reconnect MQTT listener when config arrives from VPS
+  if (data.mqttConfig?.brokerUrl && data.mqttConfig?.infoTopic) {
+    mqttListener.apply(
+      {
+        brokerUrl: data.mqttConfig.brokerUrl,
+        infoTopic: data.mqttConfig.infoTopic,
+        username:  data.mqttConfig.username,
+        password:  data.mqttConfig.password,
+      },
+      db,
+      log,
+    );
   }
 }
 

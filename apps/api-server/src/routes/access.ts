@@ -501,6 +501,32 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // PUT /access-devices/:deviceCode/mqtt-config — save MQTT live-access config (set via Settings wizard)
+  fastify.put<{
+    Params: { deviceCode: string };
+    Body: {
+      machineSn:     string;
+      mqttBrokerUrl: string;
+      mqttInfoTopic: string;
+      mqttUsername?: string;
+      mqttPassword?: string;
+    };
+  }>('/access-devices/:deviceCode/mqtt-config', async (req, reply) => {
+    const { machineSn, mqttBrokerUrl, mqttInfoTopic, mqttUsername, mqttPassword } = req.body;
+    if (!mqttBrokerUrl || !mqttInfoTopic) {
+      return reply.status(400).send({ error: 'mqttBrokerUrl and mqttInfoTopic are required' });
+    }
+
+    const device = await AccessDevice.findOneAndUpdate(
+      { deviceCode: req.params.deviceCode, isActive: true },
+      { machineSn, mqttBrokerUrl, mqttInfoTopic, mqttUsername, mqttPassword, mqttLiveEnabled: true },
+      { new: true },
+    );
+    if (!device) return reply.status(404).send({ error: 'Device not found' });
+
+    return reply.send({ ok: true, mqttInfoTopic, machineSn });
+  });
+
   // POST /access-devices/:deviceCode/fast-connect
   // Tries specified port first, then auto-scans common ports if that fails.
   // Returns either success or a list of reachable ports so the user can pick the right one.

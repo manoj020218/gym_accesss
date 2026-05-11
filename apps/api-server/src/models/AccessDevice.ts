@@ -8,11 +8,12 @@ export interface IAccessDevice extends Document {
   zone: Zone;
   type: DeviceType;
   protocol: DeviceProtocol;
-  ipAddress?: string;    // physical hardware IP (e.g. ZKTeco terminal)
-  port?: number;         // physical hardware port
-  edgeServiceIp?: string;   // IP where our edge Node.js service is reachable
-  edgeServicePort?: number; // port where our edge Node.js service is reachable
-  machinePassword?: string; // U5 web UI admin password (default 123456)
+  ipAddress?: string;
+  port?: number;
+  edgeServiceIp?: string;
+  edgeServicePort?: number;
+  machinePassword?: string;
+  machineSn?: string;        // U5 physical serial number printed on device (e.g. ZY20240703003)
   serialPort?: string;
   baudRate?: number;
   relayEnabled: boolean;
@@ -26,6 +27,12 @@ export interface IAccessDevice extends Document {
   registeredAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  // MQTT live-access config (set via Settings → Live Access wizard)
+  mqttBrokerUrl?: string;    // e.g. "mqtt://localhost:1883"
+  mqttInfoTopic?: string;    // full topic device publishes to: "info/TOKEN/ZY20240703003"
+  mqttUsername?: string;
+  mqttPassword?: string;
+  mqttLiveEnabled?: boolean; // true once configured and edge service confirmed connection
 }
 
 const accessDeviceSchema = new Schema<IAccessDevice>(
@@ -41,8 +48,14 @@ const accessDeviceSchema = new Schema<IAccessDevice>(
     edgeServiceIp:   String,
     edgeServicePort: Number,
     machinePassword: String,
+    machineSn:       String,
     serialPort:      String,
-    baudRate:      Number,
+    baudRate:        Number,
+    mqttBrokerUrl:   String,
+    mqttInfoTopic:   String,
+    mqttUsername:    String,
+    mqttPassword:    String,
+    mqttLiveEnabled: Boolean,
     relayEnabled:  { type: Boolean, default: true },
     antiPassback:  { type: String, default: 'disabled' },
     secretKeyHash: { type: String, required: true, select: false },

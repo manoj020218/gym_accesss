@@ -27,6 +27,10 @@ export interface AccessDevice {
   lastHeartbeat?: string;
   ipAddress?: string;
   port?: number;
+  machineSn?: string;
+  mqttLiveEnabled?: boolean;
+  mqttBrokerUrl?: string;
+  mqttInfoTopic?: string;
   pendingEventCount?: number;
   createdAt: string;
 }
@@ -116,6 +120,17 @@ export const accessApi = {
       )
       .then((r) => r.data)
       .catch(() => ({ total: 0, data: [] as Array<{ userId: string | number; name?: string; time: string; pic?: string }> })),
+
+  saveMqttConfig: (deviceId: string, body: {
+    machineSn:     string;
+    mqttBrokerUrl: string;
+    mqttInfoTopic: string;
+    mqttUsername?: string;
+    mqttPassword?: string;
+  }) =>
+    api
+      .put<{ ok: boolean }>(`/access-devices/${deviceId}/mqtt-config`, body)
+      .then((r) => r.data),
 
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;

@@ -121,11 +121,13 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
     '/edge/pull',
     { config: { skipAuth: true } },
     async (req, reply) => {
-      const branchId = req.query.branchId;
+      const branchId     = req.query.branchId;
+      const edgeDeviceId = req.query.edgeDeviceId;
 
-      const [members, staffList] = await Promise.all([
+      const [members, staffList, device] = await Promise.all([
         Member.find({ allowedBranchIds: branchId }),
         Staff.find({ branchId, isActive: true }),
+        AccessDevice.findOne({ deviceCode: edgeDeviceId }),
       ]);
 
       const edgeMembers: EdgeMemberRecord[] = members.map(m => ({
@@ -151,6 +153,14 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         rfidCardId:   s.rfidCardId,
       }));
 
+      // Include MQTT live-access config so edge service can connect without a restart
+      const mqttConfig = device?.mqttLiveEnabled ? {
+        brokerUrl:  device.mqttBrokerUrl,
+        infoTopic:  device.mqttInfoTopic,
+        username:   device.mqttUsername,
+        password:   device.mqttPassword,
+      } : null;
+
       return reply.send({
         policyVersion: POLICY_VERSION,
         members:  edgeMembers,
@@ -158,6 +168,7 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
         policies: [],
         blocklist: members.filter(m => m.status === MemberStatus.Blocked).map(m => m.id as string),
         generatedAt: new Date().toISOString(),
+        mqttConfig,
       });
     },
   );
