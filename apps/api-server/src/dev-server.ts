@@ -22,14 +22,32 @@ Object.assign(process.env, {
   REFRESH_TOKEN_EXPIRES_IN: '30d',
   CORS_ORIGINS:             process.env['CORS_ORIGINS']             ?? 'http://localhost:5173',
   EDGE_SHARED_SECRET:       process.env['EDGE_SHARED_SECRET']       ?? 'dev_edge_hmac_16chars!!',
-  MONGOMS_STARTUP_TIMEOUT:  '60000',   // 60s — Windows needs more time after first extraction
+  // MongoMemoryServer reads these at instance creation time — must be set before import
+  MONGOMS_STARTUP_TIMEOUT:  '120000',  // 120s — Windows first-run extraction is slow
+  MONGOMS_DOWNLOAD_TIMEOUT: '120000',
 });
 
 // ── Start in-memory MongoDB ───────────────────────────────────────────────────
-const { MongoMemoryServer } = await import('mongodb-memory-server');
-const mongod  = await MongoMemoryServer.create({
-  instance: { startupTimeout: 60000 },
-});
+const { MongoMemoryServer, MongoBinary } = await import('mongodb-memory-server');
+
+// Ensure the binary is downloaded before trying to start (first run on a fresh machine
+// can take 30–90s to download ~80 MB on slow connections — start gives up after timeout
+// if the binary isn't ready yet).
+console.log('⏳  Checking MongoDB binary (downloading if first run)…');
+try {
+  await MongoBinary.getPath();
+  console.log('✅  MongoDB binary ready');
+} catch {
+  console.error(
+    '\n❌  MongoDB binary download failed.\n' +
+    '    Check internet connectivity, then retry.\n' +
+    '    Or set MONGODB_URI env var to point at a local MongoDB instance\n' +
+    '    and run "pnpm dev" instead of "pnpm dev:local".\n',
+  );
+  process.exit(1);
+}
+
+const mongod   = await MongoMemoryServer.create();
 const mongoUri = `${mongod.getUri()}edge_gym`;
 process.env['MONGODB_URI'] = mongoUri;
 console.log('🗄️  Memory MongoDB started →', mongoUri);
