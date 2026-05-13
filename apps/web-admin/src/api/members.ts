@@ -33,7 +33,8 @@ export const memberApi = {
 
   get: (id: string) => api.get<Member>(`/members/${id}`).then((r) => r.data),
 
-  create: (body: Partial<Member>) => api.post<Member>('/members', body).then((r) => r.data),
+  create: (body: Partial<Member> & { machineUser?: { deviceCode: string; machineUserId: string } }) =>
+    api.post<Member>('/members', body).then((r) => r.data),
 
   update: (id: string, body: Partial<Member>) =>
     api.put<Member>(`/members/${id}`, body).then((r) => r.data),

@@ -21,6 +21,8 @@ const CreateBody = z.object({
   memberCode:  emptyToUndefined,  // custom ID — auto-generated if omitted
   emergencyContact: z.object({ name: z.string(), phone: z.string() }).optional(),
   allowedBranchIds: z.array(z.string()).optional(),
+  // Link to an already-enrolled machine employee (skips face enrollment step)
+  machineUser: z.object({ deviceCode: z.string(), machineUserId: z.string() }).optional(),
 });
 
 const UpdateBody = CreateBody.partial().omit({ branchId: true }).extend({
@@ -97,7 +99,9 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
       status:          MemberStatus.Pending,
       allowedZones:    [Zone.MainEntry],
       allowedBranchIds: body.allowedBranchIds ?? [body.branchId],
-      faceEnrolled:    false,
+      // If linked to a machine employee, mark face as enrolled immediately
+      faceEnrolled:    !!body.machineUser,
+      machineUsers:    body.machineUser ? [body.machineUser] : [],
       healthDeclarationSigned: false,
     });
 

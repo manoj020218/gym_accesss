@@ -78,11 +78,11 @@ export const accessApi = {
 
   u5Employees: (deviceId: string) =>
     api
-      .get<{ employees: Array<{ userId: string; name: string; id_number?: string }> }>(
+      .get<{ employees: Array<{ u5UserId: string; name: string; id_number?: string }> }>(
         `/access-devices/${deviceId}/u5-employees`,
       )
       .then((r) => r.data)
-      .catch(() => ({ employees: [] })),
+      .catch(() => ({ employees: [] as Array<{ u5UserId: string; name: string; id_number?: string }> })),
 
   fastConnect: (deviceCode: string, body: {
     deviceIp: string; devicePort?: number;
