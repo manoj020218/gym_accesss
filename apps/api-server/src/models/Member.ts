@@ -19,6 +19,12 @@ export interface IMember extends Document {
   qrToken?: string;
   faceEnrolled: boolean;
   machineUsers?: Array<{ deviceCode: string; machineUserId: string }>;
+  faceRef?: {
+    machineUserId: string;  // U5-assigned userid (e.g. "1711731668")
+    deviceSn:      string;  // which U5 machine
+    filename:      string;  // "{userId}_{YYYYMMDD}.jpg" — path under storage/faces/{memberCode}/
+    syncedAt:      Date;
+  };
   healthDeclarationSigned: boolean;
   fcmToken?: string;
   blacklistReason?: string;
@@ -46,6 +52,16 @@ const memberSchema = new Schema<IMember>(
     qrToken:       { type: String, sparse: true, index: true },
     faceEnrolled:            { type: Boolean, default: false },
     machineUsers:            [{ deviceCode: String, machineUserId: String, _id: false }],
+    faceRef: {
+      type: {
+        machineUserId: { type: String, required: true },
+        deviceSn:      { type: String, required: true },
+        filename:      { type: String, required: true },
+        syncedAt:      { type: Date,   required: true },
+      },
+      default: undefined,
+      _id: false,
+    },
     healthDeclarationSigned: { type: Boolean, default: false },
     fcmToken:        { type: String, sparse: true },
     blacklistReason: String,

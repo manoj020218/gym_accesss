@@ -112,7 +112,9 @@ export default function AccessMonitor() {
   const [syncResults, setSyncResults] = useState<{
     imported: number; total: number;
     records: Array<{
-      subjectName?: string; eventTime: string; pic?: string;
+      subjectName?: string; eventTime: string;
+      faceUrl?: string; // edge storage URL for matched members
+      pic?: string;     // inline base64 for unmatched faces only
       isNew: boolean; matched: boolean; ispass: number;
     }>;
   } | null>(null);
@@ -136,7 +138,7 @@ export default function AccessMonitor() {
   // Stranger logs — on-demand mutation (not auto-polled)
   const [strangerData, setStrangerData] = useState<{
     total: number;
-    data: Array<{ userId: string | number; name?: string; checkin_time: string; pic?: string }>;
+    data: Array<{ userid: string | number; checkin_time: string; pic?: string }>;
   } | null>(null);
 
   const syncStrangersMut = useMutation({
@@ -276,9 +278,12 @@ export default function AccessMonitor() {
               {/* Face capture grid */}
               <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
                 {syncResults.records.map((rec, i) => {
-                  const src = rec.pic
-                    ? (rec.pic.startsWith('data:') ? rec.pic : `data:image/jpeg;base64,${rec.pic}`)
-                    : null;
+                  // Matched members: faceUrl is an HTTP URL to edge storage
+                  // Unmatched faces: pic is inline base64 from machine punch record
+                  const src = rec.faceUrl
+                    ?? (rec.pic
+                      ? (rec.pic.startsWith('data:') ? rec.pic : `data:image/jpeg;base64,${rec.pic}`)
+                      : null);
                   return (
                     <div
                       key={i}

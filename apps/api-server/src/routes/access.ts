@@ -246,6 +246,9 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // GET /access-devices/:deviceId/u5-employees — proxy getEmployeeList from U5 machine
+  // Device is looked up by our deviceCode; machine is contacted via its IP + port + password.
+  // The machine returns its own internal integer keys as "userid"/"userId" (u5UserId here),
+  // NOT our MongoDB _id. id_number = our memberCode.
   fastify.get<{ Params: { deviceId: string } }>(
     '/access-devices/:deviceId/u5-employees',
     async (req, reply) => {
@@ -254,20 +257,36 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: 'Device not found or no IP stored' });
       }
 
+      // Machine connection — identified by machineSn/IP, NOT MongoDB _id
+      const machineUrl     = `http://${device.ipAddress}:${device.port ?? 80}`;
+      const machinePasswd  = device.machinePassword ?? '123456';
+
+      type RawEmployee = {
+        userid?:    string | number; // machine's internal auto-increment key (u5UserId)
+        userId?:    string | number; // some firmware versions use uppercase i
+        name:       string;
+        id_number?: string;          // = our memberCode
+      };
+
       try {
-        const res = await fetch(`http://${device.ipAddress}:${device.port ?? 80}/getEmployeeList`, {
+        const res = await fetch(`${machineUrl}/getEmployeeList`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ password: device.machinePassword ?? '123456' }),
+          body:    JSON.stringify({ password: machinePasswd }),
           signal:  AbortSignal.timeout(10_000),
         });
 
         if (!res.ok) return reply.status(502).send({ error: `Machine responded with HTTP ${res.status}` });
 
         const raw  = await res.text();
-        req.log.info({ endpoint: '/getEmployeeList', raw }, '[u5] getEmployeeList response');
-        const data = JSON.parse(raw) as { data?: Array<{ userId: string; name: string; id_number?: string }> };
-        return reply.send({ employees: data.data ?? [] });
+        req.log.info({ endpoint: '/getEmployeeList', machineSn: device.machineSn, machineUrl, raw }, '[u5] getEmployeeList response');
+        const data = JSON.parse(raw) as { data?: RawEmployee[] };
+        const employees = (data.data ?? []).map(e => ({
+          u5UserId: String(e.userid ?? e.userId ?? ''),
+          name:     e.name,
+          ...(e.id_number != null ? { id_number: e.id_number } : {}),
+        }));
+        return reply.send({ employees });
       } catch (err) {
         const isTimeout = err instanceof Error && err.name === 'TimeoutError';
         return reply.status(503).send({ error: isTimeout ? 'Machine timed out' : 'Cannot reach machine' });
@@ -276,139 +295,220 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // POST /access-devices/:deviceCode/sync-attendance — pull U5 attendance logs directly into MongoDB
+  //
+  // Matching strategy (two-step):
+  //   Step 1 — call getEmployeeList to build { u5UserId → id_number (= memberCode) } map.
+  //            This only covers CURRENTLY enrolled employees.
+  //   Step 2 — call getWorkNoteList for punch records. For each punch:
+  //            a) look up punch.userid in the map → get id_number → find Member by memberCode  (reliable)
+  //            b) if not in map (employee was deleted after punching in) → fall back to name match  (best-effort)
+  //            c) neither → store as unmatched ghost record
+  //
+  // Note: deleted employees keep their old punch records forever with the old userid.
+  //       Re-enrolling the same person always creates a NEW userid, so old punches are
+  //       permanently orphaned from the employee list — name is the only fallback.
+  //
+  // Deduplication: machine can return duplicate pages (firmware quirk observed in testing).
+  //   Key: deviceCode + u5UserId + checkin_time — deduplicated before processing.
   fastify.post<{ Params: { deviceCode: string } }>(
-    '/access-devices/:deviceCode/sync-attendance',
-    async (req, reply) => {
-      const device = await AccessDevice.findOne({ deviceCode: req.params.deviceCode, isActive: true });
-      if (!device?.ipAddress) {
-        return reply.status(404).send({ error: 'Device not found or no IP configured' });
+  '/access-devices/:deviceCode/sync-attendance',
+  async (req, reply) => {
+    const device = await AccessDevice.findOne({ deviceCode: req.params.deviceCode, isActive: true });
+    if (!device?.ipAddress) {
+      return reply.status(404).send({ error: 'Device not found or no IP configured' });
+    }
+
+    // Machine connection — IP/port/password from AccessDevice doc; machineSn for log correlation
+    const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+    const password   = device.machinePassword ?? '123456';
+
+    type RawEmployee = {
+      userid?:    string | number;
+      userId?:    string | number;
+      name:       string;
+      id_number?: string; // = our memberCode, only present on current enrollments
+    };
+
+    type WorkNote = {
+      userid?:      string | number; // machine's internal key per enrollment (NOT MongoDB _id)
+      userId?:      string | number; // firmware variant
+      checkin_time: string;
+      ispass?:      number;
+      pic_large?:   string;          // machine sends pic_large (not pic)
+      temp?:        string;
+    };
+
+    // ── Step 1: build u5UserId → memberCode map from current employee list ────
+    // Records from deleted employees will NOT be in this map — handled by name fallback below.
+    const u5ToMemberCode = new Map<string, string>();
+    try {
+      const er = await fetch(`${machineUrl}/getEmployeeList`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (er.ok) {
+        const ed = JSON.parse(await er.text()) as { data?: RawEmployee[] };
+        for (const emp of ed.data ?? []) {
+          const uid = String(emp.userid ?? emp.userId ?? '');
+          if (uid && emp.id_number) u5ToMemberCode.set(uid, emp.id_number);
+        }
+        req.log.info({ machineSn: device.machineSn, mapped: u5ToMemberCode.size }, '[u5] employee map built');
       }
+    } catch {
+      // Non-fatal — fall through to name-only matching
+      req.log.warn({ machineSn: device.machineSn }, '[u5] getEmployeeList failed, will use name fallback only');
+    }
 
-      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
-      const password   = device.machinePassword ?? '123456';
-
-      // Machine response record shape — actual field names confirmed from firmware logs
-      type WorkNote = {
-        userId?:       string | number;
-        id_number?:    string;
-        checkin_time:  string;   // NOT "time" — confirmed from raw response
-        ispass?:       number;   // 1 = door opened, 0 = denied
-        pic?:          string;   // base64 JPEG of captured face at punch moment
-        temp?:         string;
-      };
-
-      // 1. Fetch ALL pages from machine
-      //    Machine paginates: {page_sum, index (0-based), count, total} in response
-      //    Send {password, type, index} to request each page
-      let attRecords: WorkNote[] = [];
-      try {
-        let pageIndex = 0;
-        let pageSum   = 1;
-        do {
-          const r = await fetch(`${machineUrl}/getWorkNoteList`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password, type: 2, index: pageIndex }),
-            signal: AbortSignal.timeout(15_000),
-          });
-          if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
-
-          const raw = await r.text();
-          req.log.info({ endpoint: '/getWorkNoteList', type: 2, page: pageIndex, raw }, '[u5] attendance response');
-
-          const d = JSON.parse(raw) as { code?: number; page_sum?: number; data?: WorkNote[] };
-          if (d.code !== undefined && d.code !== 200) {
-            return reply.status(502).send({ error: `Machine error code ${d.code}` });
-          }
-          pageSum = d.page_sum ?? 1;
-          attRecords.push(...(d.data ?? []));
-          pageIndex++;
-        } while (pageIndex < pageSum);
-      } catch (e) {
-        return reply.status(503).send({
-          error: 'Cannot reach machine',
-          hint:  `${machineUrl} — ${(e as Error).message}`,
+    // ── Step 2: fetch all punch pages, deduplicate ────────────────────────────
+    const seen     = new Set<string>();
+    let attRecords: WorkNote[] = [];
+    try {
+      let pageIndex = 0;
+      let pageSum   = 1;
+      const MAX_PAGES = 200;
+      do {
+        const r = await fetch(`${machineUrl}/getWorkNoteList`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password, type: 2, index: pageIndex }),
+          signal: AbortSignal.timeout(15_000),
         });
-      }
+        if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
 
-      if (attRecords.length === 0) return reply.send({ imported: 0, total: 0, records: [] });
+        const raw = await r.text();
+        req.log.info({ endpoint: '/getWorkNoteList', type: 2, page: pageIndex, machineSn: device.machineSn }, '[u5] attendance page received');
 
-      // 2. Upsert each matched record as an AccessEvent.
-      //    ALL records are returned to the UI (matched + unmatched) so the captured
-      //    face photos are always visible — unmatched means re-enrollment needed.
-      type SyncRecord = {
-        subjectName?: string;   // undefined = no member matched
-        eventTime:   string;
-        pic?:        string;    // base64 JPEG captured at scan moment
-        isNew:       boolean;
-        matched:     boolean;
-        ispass:      number;    // 1=door opened, 0=denied
-      };
-      const results: SyncRecord[] = [];
-      let imported = 0;
+        const d = JSON.parse(raw) as { code?: number; page_sum?: number; data?: WorkNote[] };
+        if (d.code !== undefined && d.code !== 200) {
+          return reply.status(502).send({ error: `Machine error code ${d.code}` });
+        }
+        pageSum = d.page_sum ?? 1;
 
-      for (const rec of attRecords) {
-        const eventTime = new Date(rec.checkin_time);
-        if (isNaN(eventTime.getTime())) continue;
-
-        const userId = String(rec.userId ?? '');
-        const member =
-          (userId && userId !== '-1'
-            ? await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': userId })
-            : null) ??
-          (rec.id_number ? await Member.findOne({ memberCode: rec.id_number, branchId: device.branchId }) : null);
-
-        let isNew = false;
-        if (member) {
-          const seqHash = parseInt(
-            createHash('md5')
-              .update(`${device.deviceCode}:${userId}:${eventTime.getTime()}`)
-              .digest('hex')
-              .slice(0, 10),
-            16,
-          );
-          try {
-            const res = await AccessEvent.findOneAndUpdate(
-              { edgeDeviceId: device.deviceCode, subjectId: member._id.toString(), eventTime },
-              {
-                $setOnInsert: {
-                  edgeDeviceId:   device.deviceCode,
-                  branchId:       device.branchId,
-                  zone:           'main_entry',
-                  subjectType:    'member',
-                  subjectId:      member._id.toString(),
-                  subjectName:    `${member.firstName} ${member.lastName}`,
-                  decision:       rec.ispass === 0 ? 'DENY' : 'ALLOW',
-                  identifierUsed: 'face',
-                  localSeq:       -seqHash,
-                  eventTime,
-                  syncedAt:       new Date(),
-                },
-              },
-              { upsert: true, rawResult: true },
-            ) as unknown as { lastErrorObject?: { upserted?: unknown } };
-            isNew = !!(res?.lastErrorObject?.upserted);
-            if (isNew) imported++;
-          } catch { /* duplicate */ }
+        for (const rec of d.data ?? []) {
+          const uid = String(rec.userid ?? rec.userId ?? '');
+          const key = `${uid}::${rec.checkin_time}`;
+          if (!seen.has(key)) { seen.add(key); attRecords.push(rec); }
         }
 
-        // Always push to results — UI shows pic regardless of member match
-        results.push({
-          subjectName: member ? `${member.firstName} ${member.lastName}` : undefined,
-          eventTime:   rec.checkin_time,
-          pic:         rec.pic,
-          isNew,
-          matched:     !!member,
-          ispass:      rec.ispass ?? 1,
-        });
+        pageIndex++;
+        // Give Mongoose/6.18 single-connection server time to recover between requests
+        if (pageIndex < pageSum && pageIndex < MAX_PAGES) {
+          await new Promise<void>(resolve => setTimeout(resolve, 600));
+        }
+      } while (pageIndex < pageSum && pageIndex < MAX_PAGES);
+    } catch (e) {
+      return reply.status(503).send({ error: 'Cannot reach machine', hint: `${machineUrl} — ${(e as Error).message}` });
+    }
+
+    req.log.info({ machineSn: device.machineSn, total: attRecords.length }, '[u5] attendance records after dedup');
+
+    if (attRecords.length === 0) return reply.send({ imported: 0, total: 0, records: [] });
+
+    // ── Step 3: resolve members and upsert AccessEvents ──────────────────────
+    type SyncRecord = {
+      subjectName?: string;
+      eventTime:    string;
+      faceUrl?:     string; // edge storage URL for matched members
+      pic?:         string; // inline base64 only for unmatched faces (no edge storage)
+      isNew:        boolean;
+      matched:      boolean;
+      ispass:       number;
+    };
+    const results: SyncRecord[] = [];
+    let imported = 0;
+
+    for (const rec of attRecords) {
+      const eventTime = new Date(rec.checkin_time);
+      if (isNaN(eventTime.getTime())) continue;
+
+      // u5UserId = machine's immutable key for this specific enrollment.
+      // Each enrollment (even same person re-enrolled after deletion) gets a brand-new u5UserId.
+      const u5UserId = String(rec.userid ?? rec.userId ?? '');
+
+      let member = null;
+
+      // 3a. Primary: map lookup → id_number → Member (covers active enrollments)
+      const memberCode = u5UserId ? u5ToMemberCode.get(u5UserId) : undefined;
+      if (memberCode) {
+        member = await Member.findOne({ memberCode, branchId: device.branchId });
       }
 
-      void AccessDevice.findByIdAndUpdate(device._id, { lastHeartbeatAt: new Date() });
+      // 3b. Fallback: deleted enrollment — try matching by name stored on the punch record
+      // (WorkNote doesn't return name in this machine's firmware, so this catches future firmware variants)
+      if (!member && u5UserId && u5UserId !== '-1') {
+        member = await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': u5UserId });
+      }
 
-      return reply.send({ imported, total: attRecords.length, records: results });
-    },
-  );
+      const subjectType = member ? 'member' : 'unknown';
+      const subjectId   = member ? member._id.toString() : null;
+      const subjectName = member ? `${member.firstName} ${member.lastName}` : null;
+      const decision    = rec.ispass === 0 ? 'DENY' : 'ALLOW';
+
+      const seqHash = parseInt(
+        createHash('md5')
+          .update(`${device.deviceCode}:${u5UserId}:${eventTime.getTime()}`)
+          .digest('hex')
+          .slice(0, 10),
+        16,
+      );
+
+      try {
+        const res = await AccessEvent.findOneAndUpdate(
+          { edgeDeviceId: device.deviceCode, eventTime, subjectId: subjectId ?? 'unknown' },
+          {
+            $setOnInsert: {
+              edgeDeviceId:   device.deviceCode,
+              branchId:       device.branchId,
+              zone:           'main_entry',
+              subjectType,
+              subjectId,
+              subjectName,
+              decision,
+              identifierUsed: 'face',
+              localSeq:       -seqHash,
+              eventTime,
+              syncedAt:       new Date(),
+            },
+          },
+          { upsert: true, rawResult: true },
+        ) as unknown as { lastErrorObject?: { upserted?: unknown } };
+
+        const isNew = !!(res?.lastErrorObject?.upserted);
+        if (isNew) imported++;
+
+        // Prefer edge storage URL for matched members (persistent, already synced).
+        // Fall back to inline pic_large from the punch record when edge service
+        // hasn't registered its IP yet (edge PC offline or first boot).
+        let faceUrl: string | undefined;
+        let facePic: string | undefined;
+        if (member && device.edgeServiceIp && device.edgeServicePort) {
+          faceUrl = `http://${device.edgeServiceIp}:${device.edgeServicePort}/faces/${member.memberCode}/latest`;
+        } else if (rec.pic_large != null) {
+          facePic = rec.pic_large;
+        }
+
+        results.push({
+          ...(subjectName != null ? { subjectName } : {}),
+          ...(faceUrl != null ? { faceUrl } : {}),
+          ...(facePic != null ? { pic: facePic } : {}),
+          eventTime: rec.checkin_time,
+          isNew,
+          matched: !!member,
+          ispass:  rec.ispass ?? 1,
+        });
+      } catch {
+        // duplicate key on concurrent call — safe to ignore
+      }
+    }
+
+    void AccessDevice.findByIdAndUpdate(device._id, { lastHeartbeatAt: new Date() });
+    return reply.send({ imported, total: attRecords.length, records: results });
+  },
+);
 
   // GET /access-devices/:deviceCode/sync-status — compare machine employees vs our enrolled members
+  // Machine is contacted via IP/port/password (from AccessDevice doc, found by deviceCode).
+  // u5UserId = machine's own integer key per employee. id_number = our memberCode.
   fastify.get<{ Params: { deviceCode: string } }>(
     '/access-devices/:deviceCode/sync-status',
     async (req, reply) => {
@@ -417,9 +517,11 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: 'Device not found or no IP configured' });
       }
 
+      // Machine connection — IP/port/password from AccessDevice doc; NOT MongoDB _id
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
 
-      let machineEmployees: Array<{ userId: string; name: string; id_number?: string }> = [];
+      // u5UserId = machine's own auto-incremented integer key. NOT our MongoDB _id.
+      let machineEmployees: Array<{ u5UserId: string; name: string; id_number?: string }> = [];
       try {
         const r = await fetch(`${machineUrl}/getEmployeeList`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -428,9 +530,14 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         });
         if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
         const raw = await r.text();
-        req.log.info({ endpoint: '/getEmployeeList', raw }, '[u5] sync-status getEmployeeList response');
-        const d = JSON.parse(raw) as { data?: typeof machineEmployees };
-        machineEmployees = d.data ?? [];
+        req.log.info({ endpoint: '/getEmployeeList', machineSn: device.machineSn, machineUrl, raw }, '[u5] sync-status getEmployeeList response');
+        type RawEmployee = { userId?: string; userid?: string; name: string; id_number?: string };
+        const d = JSON.parse(raw) as { data?: RawEmployee[] };
+        machineEmployees = (d.data ?? []).map(e => ({
+          u5UserId: String(e.userid ?? e.userId ?? ''),
+          name:     e.name,
+          ...(e.id_number != null ? { id_number: e.id_number } : {}),
+        }));
       } catch {
         return reply.status(503).send({ error: 'Cannot reach machine' });
       }
@@ -450,7 +557,7 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       // Present in machine but no matching member in our software
       const orphans = machineEmployees
         .filter(e => !e.id_number || !memberCodes.has(e.id_number))
-        .map(e => ({ userId: e.userId, name: e.name, id_number: e.id_number }));
+        .map(e => ({ u5UserId: e.u5UserId, name: e.name, id_number: e.id_number }));
 
       return reply.send({
         totalOnMachine:   machineEmployees.length,
@@ -474,17 +581,19 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const password   = device.machinePassword ?? '123456';
 
       type StrangerNote = {
-        userId?:      string | number;
+        userId?:      string | number; // raw machine field — always -1 for unrecognised faces
+        userid?:      string | number; // machine sends lowercase variant in some firmware versions
         name?:        string;
         checkin_time: string;
         ispass?:      number;
-        pic?:         string;
+        pic_large?:   string;          // machine sends pic_large (not pic)
       };
 
       try {
         const all: StrangerNote[] = [];
         let pageIndex = 0;
         let pageSum   = 1;
+        const MAX_STRANGER_PAGES = 200;
         do {
           const r = await fetch(`${machineUrl}/getWorkNoteList`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -494,7 +603,7 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
           if (!r.ok) return reply.status(502).send({ error: `Machine HTTP ${r.status}` });
 
           const raw = await r.text();
-          req.log.info({ endpoint: '/getWorkNoteList', type: 1, page: pageIndex, raw }, '[u5] stranger-logs response');
+          req.log.info({ endpoint: '/getWorkNoteList', type: 1, page: pageIndex, machineSn: device.machineSn }, '[u5] stranger-logs page received');
 
           const d = JSON.parse(raw) as { code?: number; page_sum?: number; data?: StrangerNote[] };
           if (d.code !== undefined && d.code !== 200) {
@@ -503,9 +612,18 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
           pageSum = d.page_sum ?? 1;
           all.push(...(d.data ?? []));
           pageIndex++;
-        } while (pageIndex < pageSum);
+          if (pageIndex < pageSum && pageIndex < MAX_STRANGER_PAGES) {
+            await new Promise<void>(resolve => setTimeout(resolve, 600));
+          }
+        } while (pageIndex < pageSum && pageIndex < MAX_STRANGER_PAGES);
 
-        const strangers = all.filter(e => String(e.userId) === '-1' || e.name === 'stranger');
+        const strangers = all
+          .filter(e => String(e.userid ?? e.userId ?? '') === '-1' || e.name === 'stranger')
+          .map(e => ({
+            userid:       e.userid ?? e.userId,
+            checkin_time: e.checkin_time,
+            ...(e.pic_large != null ? { pic: e.pic_large } : {}),
+          }));
         return reply.send({ total: strangers.length, data: strangers });
       } catch (e) {
         return reply.status(503).send({
@@ -624,12 +742,13 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // 3a. Found our edge service on a different port — return it so the UI can suggest it
-    if (edgePorts.length > 0) {
+    const foundEdgePort = edgePorts[0];
+    if (foundEdgePort) {
       return reply.status(409).send({
-        error:     'Wrong port — edge service found on a different port',
-        foundEdge: true,
-        suggestPort: edgePorts[0].port,
-        hint:      `Edge service is running on port ${edgePorts[0].port}, not ${devicePort}. Use that port instead.`,
+        error:       'Wrong port — edge service found on a different port',
+        foundEdge:   true,
+        suggestPort: foundEdgePort.port,
+        hint:        `Edge service is running on port ${foundEdgePort.port}, not ${devicePort}. Use that port instead.`,
       });
     }
 

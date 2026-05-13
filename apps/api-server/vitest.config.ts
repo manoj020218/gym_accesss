@@ -7,6 +7,8 @@ export default defineConfig({
     testTimeout: 60_000,
     // Set all env vars before config.ts is imported — must come before module load
     env: {
+      MONGOMS_STARTUP_TIMEOUT:   '120000',
+      MONGOMS_DOWNLOAD_TIMEOUT:  '120000',
       NODE_ENV:                  'test',
       PORT:                      '0',
       LOG_LEVEL:                 'silent',

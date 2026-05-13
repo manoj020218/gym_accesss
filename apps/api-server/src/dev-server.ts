@@ -47,7 +47,9 @@ try {
   process.exit(1);
 }
 
-const mongod   = await MongoMemoryServer.create();
+const mongod   = await MongoMemoryServer.create({
+  instance: { launchTimeout: 120_000 },   // 2 min — Windows is slow to launch mongod
+});
 const mongoUri = `${mongod.getUri()}edge_gym`;
 process.env['MONGODB_URI'] = mongoUri;
 console.log('🗄️  Memory MongoDB started →', mongoUri);

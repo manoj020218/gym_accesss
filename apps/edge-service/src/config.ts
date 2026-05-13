@@ -15,6 +15,9 @@ const Env = z.object({
   U5_MACHINE_IP:       z.string().optional(),
   U5_MACHINE_PORT:     z.coerce.number().default(80),
   U5_MACHINE_PASSWORD: z.string().default('123456'),
+  U5_MACHINE_USERNAME: z.string().default('admin'),
+  // Face image storage — edge PC only, never uploaded to VPS
+  FACE_STORAGE_DIR:    z.string().default('./storage/faces'),
 });
 
 const parsed = Env.safeParse(process.env);

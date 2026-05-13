@@ -270,6 +270,66 @@ const edgeSyncRoutes: FastifyPluginAsync = async (fastify) => {
       });
     },
   );
+
+  // POST /internal/members/face-ref
+  // Called by edge service after saving a face JPEG locally.
+  // Updates Member.faceRef in MongoDB — no face data ever sent here, only metadata.
+  const FaceRefBody = z.object({
+    memberCode:    z.string().min(1),
+    machineUserId: z.string().min(1),
+    deviceSn:      z.string().min(1),
+    filename:      z.string().min(1),
+  });
+
+  fastify.post<{ Body: z.infer<typeof FaceRefBody> }>(
+    '/internal/members/face-ref',
+    { config: { skipAuth: true } },
+    async (req, reply) => {
+      const body = FaceRefBody.parse(req.body);
+
+      const member = await Member.findOneAndUpdate(
+        { memberCode: body.memberCode },
+        {
+          faceRef: {
+            machineUserId: body.machineUserId,
+            deviceSn:      body.deviceSn,
+            filename:      body.filename,
+            syncedAt:      new Date(),
+          },
+          faceEnrolled: true,
+        },
+        { new: true },
+      );
+
+      if (!member) return reply.status(404).send({ error: 'Member not found' });
+      return reply.send({ ok: true, memberCode: body.memberCode });
+    },
+  );
+
+  // POST /internal/edge/:edgeDeviceId/sync-faces
+  // Admin panel calls this; VPS forwards to the edge service's POST /sync-faces.
+  // Returns immediately — the edge service runs the sync in background.
+  fastify.post<{ Params: { edgeDeviceId: string } }>(
+    '/internal/edge/:edgeDeviceId/sync-faces',
+    async (req, reply) => {
+      const device = await AccessDevice.findOne({ deviceCode: req.params.edgeDeviceId })
+        .select('edgeServiceIp edgeServicePort').lean();
+
+      if (!device?.edgeServiceIp || !device?.edgeServicePort) {
+        return reply.status(503).send({ error: 'Edge service address unknown — is it online?' });
+      }
+
+      const edgeUrl = `http://${device.edgeServiceIp}:${device.edgeServicePort}/sync-faces`;
+      try {
+        const res = await fetch(edgeUrl, { method: 'POST', signal: AbortSignal.timeout(5_000) });
+        if (!res.ok) throw new Error(`Edge returned ${res.status}`);
+        return reply.send({ queued: true, edgeUrl });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        return reply.status(502).send({ error: `Could not reach edge service: ${msg}` });
+      }
+    },
+  );
 };
 
 export default edgeSyncRoutes;

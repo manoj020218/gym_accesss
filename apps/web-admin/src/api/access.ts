@@ -102,7 +102,8 @@ export const accessApi = {
         records:  Array<{
           subjectName?: string;
           eventTime:    string;
-          pic?:         string;
+          faceUrl?:     string; // edge storage URL for matched members
+          pic?:         string; // inline base64 for unmatched faces only
           isNew:        boolean;
           matched:      boolean;
           ispass:       number;
@@ -123,11 +124,11 @@ export const accessApi = {
 
   strangerLogs: (deviceId: string) =>
     api
-      .get<{ total: number; data: Array<{ userId: string | number; name?: string; time: string; pic?: string }> }>(
+      .get<{ total: number; data: Array<{ userid: string | number; checkin_time: string; pic?: string }> }>(
         `/access-devices/${deviceId}/stranger-logs`,
       )
       .then((r) => r.data)
-      .catch(() => ({ total: 0, data: [] as Array<{ userId: string | number; name?: string; time: string; pic?: string }> })),
+      .catch(() => ({ total: 0, data: [] as Array<{ userid: string | number; checkin_time: string; pic?: string }> })),
 
   saveMqttConfig: (deviceId: string, body: {
     machineSn:     string;

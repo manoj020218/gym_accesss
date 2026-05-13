@@ -1,8 +1,11 @@
 import Fastify  from 'fastify';
+import { createReadStream } from 'node:fs';
+import { readdir, stat }   from 'node:fs/promises';
+import path from 'node:path';
 import { config } from './config.js';
 import { EdgeDB } from './db/sqlite.js';
 import { decide } from './access/decision.js';
-import { startSyncWorker } from './sync/worker.js';
+import { startSyncWorker, syncU5Faces } from './sync/worker.js';
 import { U5Adapter } from './hardware/u5/index.js';
 import { Zone, AccessDecision } from '@edge-gym/shared-types';
 import { z } from 'zod';
@@ -125,6 +128,57 @@ async function main() {
     const state   = db.getSyncState();
     const pending = db.getPendingEvents(1).length;
     return reply.send({ ...state, hasPending: pending > 0, deviceId: config.EDGE_DEVICE_ID });
+  });
+
+  // ── Face file server ──────────────────────────────────────────────────────
+  // GET /faces/:memberCode/:filename  — serve specific JPEG
+  app.get<{ Params: { memberCode: string; filename: string } }>(
+    '/faces/:memberCode/:filename',
+    async (req, reply) => {
+      const { memberCode, filename } = req.params;
+      if (memberCode.includes('..') || filename.includes('..')) {
+        return reply.status(400).send({ error: 'Invalid path' });
+      }
+      const filePath = path.resolve(config.FACE_STORAGE_DIR, memberCode, filename);
+      try {
+        await stat(filePath);
+      } catch {
+        return reply.status(404).send({ error: 'Face not found' });
+      }
+      reply.header('Content-Type', 'image/jpeg');
+      reply.header('Cache-Control', 'public, max-age=86400');
+      return reply.send(createReadStream(filePath));
+    },
+  );
+
+  // GET /faces/:memberCode/latest  — serve newest JPEG for a member
+  app.get<{ Params: { memberCode: string } }>(
+    '/faces/:memberCode/latest',
+    async (req, reply) => {
+      const { memberCode } = req.params;
+      if (memberCode.includes('..')) {
+        return reply.status(400).send({ error: 'Invalid path' });
+      }
+      const dir = path.resolve(config.FACE_STORAGE_DIR, memberCode);
+      try {
+        const files = await readdir(dir);
+        const jpgs  = files.filter(f => f.endsWith('.jpg')).sort();
+        if (jpgs.length === 0) return reply.status(404).send({ error: 'No face found' });
+        const latest   = jpgs[jpgs.length - 1]!;
+        reply.header('Content-Type', 'image/jpeg');
+        reply.header('Cache-Control', 'public, max-age=3600');
+        return reply.send(createReadStream(path.resolve(dir, latest)));
+      } catch {
+        return reply.status(404).send({ error: 'No face found' });
+      }
+    },
+  );
+
+  // POST /sync-faces  — triggered by VPS when admin clicks "Sync from machine"
+  // Runs face sync in background; returns immediately so the HTTP caller doesn't time out.
+  app.post('/sync-faces', async (_req, reply) => {
+    reply.send({ queued: true, message: 'Face sync started' });
+    syncU5Faces(app.log).catch(e => app.log.error(e, '[faces] syncU5Faces crashed'));
   });
 
   try {
