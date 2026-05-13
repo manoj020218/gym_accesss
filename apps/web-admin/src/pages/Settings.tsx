@@ -15,7 +15,7 @@ import { toast } from '../store/toast';
 import { api } from '../api/client';
 import { fmtDate } from '../utils/format';
 
-type Tab = 'branches' | 'profile' | 'system' | 'liveaccess' | 'accesshours';
+type Tab = 'branches' | 'profile' | 'system' | 'liveaccess' | 'accesshours' | 'billing';
 
 function BranchForm({ branch, onSuccess }: { branch?: Branch; onSuccess: () => void }) {
   const [form, setForm] = useState({
@@ -78,8 +78,8 @@ function StepDot({ label, idx, current }: { label: string; idx: number; current:
 
 function LiveAccessWizard() {
   const { selectedBranchId } = useAuthStore();
-  const [step, setStep]   = useState(0);
-  const [saved, setSaved] = useState(false);
+  const [step, setStep] = useState(0);
+  const [, setSaved]    = useState(false);
 
   const { data: devices = [], isLoading: devLoading } = useQuery({
     queryKey: ['devices', selectedBranchId],
@@ -249,7 +249,7 @@ function LiveAccessWizard() {
               value={form.brokerUrl}
               onChange={set('brokerUrl')}
               placeholder="mqtt://localhost:1883"
-              helpText="Use mqtt:// for plain (port 1883) or mqtts:// for TLS (port 8883). Default: mqtt://localhost:1883"
+              hint="Use mqtt:// for plain (port 1883) or mqtts:// for TLS (port 8883). Default: mqtt://localhost:1883"
             />
           </div>
 
@@ -275,7 +275,7 @@ function LiveAccessWizard() {
               value={form.machineSn}
               onChange={handleSnChange}
               placeholder="ZY20240703003"
-              helpText="Printed on the device label or shown in machine About screen."
+              hint="Printed on the device label or shown in machine About screen."
             />
 
             {/* Full topic — editable, auto-filled from SN */}
@@ -587,6 +587,159 @@ function AccessHoursSettings() {
   );
 }
 
+// ── GST / Billing Settings ─────────────────────────────────────────────────────
+function GstSettings() {
+  const { selectedBranchId } = useAuthStore();
+  const qc = useQueryClient();
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches'],
+    queryFn:  () => branchApi.list(),
+  });
+
+  const [selectedId, setSelectedId] = useState<string>(selectedBranchId ?? '');
+  const activeBranch = branches.find(b => b._id === selectedId) ?? branches[0];
+
+  const [form, setForm] = useState({
+    enabled:       false,
+    percent:       18,
+    effectiveDate: new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+  });
+
+  useEffect(() => {
+    if (!activeBranch) return;
+    setForm({
+      enabled:       activeBranch.gstEnabled       ?? false,
+      percent:       activeBranch.gstPercent        ?? 18,
+      effectiveDate: activeBranch.gstEffectiveDate
+        ? activeBranch.gstEffectiveDate.slice(0, 10)
+        : new Date().toISOString().slice(0, 10),
+    });
+    setSelectedId(activeBranch._id);
+  }, [activeBranch?._id]);
+
+  const saveMut = useMutation({
+    mutationFn: () =>
+      branchApi.update(activeBranch!._id, {
+        gstEnabled:        form.enabled,
+        gstPercent:        form.percent,
+        gstEffectiveDate:  form.enabled ? new Date(form.effectiveDate).toISOString() : undefined,
+      }),
+    onSuccess: () => {
+      toast.success('GST settings saved');
+      void qc.invalidateQueries({ queryKey: ['branches'] });
+    },
+    onError: () => toast.error('Failed to save GST settings'),
+  });
+
+  return (
+    <div className="max-w-xl">
+      {branches.length > 1 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {branches.map(b => (
+            <button
+              key={b._id}
+              onClick={() => setSelectedId(b._id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                selectedId === b._id
+                  ? 'bg-purple-600 border-purple-500 text-white'
+                  : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeBranch && (
+        <Card className="p-6 space-y-6">
+          {/* GST enable toggle */}
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-200">GST Registered</p>
+              <p className="text-xs text-muted mt-0.5">
+                Turn on if your gym is registered under GST and collects tax from members.
+                GST will be added on top of the plan price.
+              </p>
+            </div>
+            <button
+              onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
+              className={`relative w-12 h-6 rounded-full flex-shrink-0 transition-colors ${form.enabled ? 'bg-purple-600' : 'bg-white/[0.1]'}`}
+            >
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${form.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {form.enabled && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                    GST Rate (%)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={form.percent}
+                    onChange={e => setForm(f => ({ ...f, percent: Number(e.target.value) }))}
+                    className="w-full px-3.5 py-2.5 rounded-[10px] bg-white/[0.06] border border-white/10 text-sm text-slate-100 outline-none focus:border-purple-500/50"
+                  />
+                  <p className="text-[11px] text-muted mt-1">Default: 18% (standard Indian GST for fitness services)</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1.5">
+                    Effective From
+                  </label>
+                  <input
+                    type="date"
+                    value={form.effectiveDate}
+                    onChange={e => setForm(f => ({ ...f, effectiveDate: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 rounded-[10px] bg-white/[0.06] border border-white/10 text-sm text-slate-100 outline-none focus:border-purple-500/50"
+                  />
+                  <p className="text-[11px] text-muted mt-1">If rate changes in future, update here with new effective date.</p>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3 text-xs text-slate-400 space-y-1">
+                <p className="font-semibold text-slate-300 mb-1.5">Example: Monthly Plan ₹1,000</p>
+                <div className="flex justify-between">
+                  <span>Base price</span>
+                  <span className="text-slate-200 font-mono">₹1,000</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>GST @ {form.percent}%</span>
+                  <span className="text-amber-400 font-mono">+₹{(1000 * form.percent / 100).toFixed(0)}</span>
+                </div>
+                <div className="flex justify-between border-t border-white/[0.06] pt-1 mt-1">
+                  <span className="font-semibold text-slate-200">Member pays</span>
+                  <span className="text-emerald-400 font-mono font-semibold">₹{(1000 * (1 + form.percent / 100)).toFixed(0)}</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          {!form.enabled && (
+            <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl px-4 py-3 text-xs text-muted">
+              GST is disabled — plan prices are shown as-is, no tax added at billing.
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button onClick={() => saveMut.mutate()} loading={saveMut.isPending}>
+              Save GST Settings
+            </Button>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { user } = useAuthStore();
   const { isOwner } = useRole();
@@ -628,6 +781,7 @@ export default function Settings() {
   const tabs = [
     ...(isOwner ? [{ id: 'branches' as Tab, label: 'Branches' }] : []),
     { id: 'profile'     as Tab, label: 'My Profile' },
+    { id: 'billing'     as Tab, label: 'Billing & GST' },
     { id: 'accesshours' as Tab, label: 'Access Hours' },
     { id: 'liveaccess'  as Tab, label: 'Live Access' },
     { id: 'system'      as Tab, label: 'System Health' },
@@ -763,6 +917,9 @@ export default function Settings() {
           </Card>
         </div>
       )}
+
+      {/* BILLING & GST */}
+      {tab === 'billing' && <GstSettings />}
 
       {/* ACCESS HOURS */}
       {tab === 'accesshours' && <AccessHoursSettings />}

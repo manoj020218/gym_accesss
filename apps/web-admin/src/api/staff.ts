@@ -6,10 +6,12 @@ export interface StaffMember {
   lastName: string;
   phone: string;
   email?: string;
-  role: 'manager' | 'trainer' | 'receptionist' | 'cleaner' | 'security';
+  role: string; // standard roles + custom gym-specific roles
   branchId: string;
   isActive: boolean;
   rfidCardId?: string;
+  shiftStart?: string;
+  shiftEnd?: string;
   createdAt: string;
 }
 

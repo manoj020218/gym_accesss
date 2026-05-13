@@ -13,10 +13,10 @@ const CreateBody = z.object({
   lastName:     z.string().min(1),
   phone:        z.string().min(10),
   email:        z.string().email().optional(),
-  role:         z.nativeEnum(StaffRole),
+  role:         z.string().min(1),  // accepts StaffRole enum values or custom gym-specific roles
   allowedZones: z.array(z.nativeEnum(Zone)).optional(),
-  shiftStart:   z.string().regex(/^\d{2}:\d{2}$/, 'HH:MM format required'),
-  shiftEnd:     z.string().regex(/^\d{2}:\d{2}$/, 'HH:MM format required'),
+  shiftStart:   z.string().regex(/^\d{2}:\d{2}$/, 'HH:MM format required').optional(),
+  shiftEnd:     z.string().regex(/^\d{2}:\d{2}$/, 'HH:MM format required').optional(),
   rfidCardId:   z.string().optional(),
 });
 

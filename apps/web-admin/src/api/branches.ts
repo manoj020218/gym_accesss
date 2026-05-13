@@ -11,6 +11,10 @@ export interface Branch {
   accessHoursStart?: string;    // "HH:MM"
   accessHoursEnd?: string;      // "HH:MM"
   accessAllowedDays?: number[]; // 0=Sun … 6=Sat
+  gstEnabled?: boolean;
+  gstPercent?: number;
+  gstEffectiveDate?: string;
+  customStaffRoles?: string[];
 }
 
 export const branchApi = {

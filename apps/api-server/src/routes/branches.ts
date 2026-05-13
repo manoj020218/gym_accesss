@@ -18,6 +18,10 @@ const UpdateBody = CreateBody.partial().extend({
   accessHoursStart:    z.string().regex(/^\d{2}:\d{2}$/).optional(),
   accessHoursEnd:      z.string().regex(/^\d{2}:\d{2}$/).optional(),
   accessAllowedDays:   z.array(z.number().int().min(0).max(6)).optional(),
+  gstEnabled:          z.boolean().optional(),
+  gstPercent:          z.number().min(0).max(100).optional(),
+  gstEffectiveDate:    z.string().optional(),
+  customStaffRoles:    z.array(z.string()).optional(),
 });
 
 const branchRoutes: FastifyPluginAsync = async (fastify) => {

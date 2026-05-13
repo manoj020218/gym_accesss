@@ -12,6 +12,12 @@ export interface IBranch extends Document {
   accessHoursStart: string;    // "HH:MM", e.g. "06:00"
   accessHoursEnd: string;      // "HH:MM", e.g. "22:00"
   accessAllowedDays: number[]; // 0=Sun … 6=Sat, default all 7
+  // GST / tax settings
+  gstEnabled: boolean;
+  gstPercent: number;           // default 18
+  gstEffectiveDate?: Date;      // when current rate took effect
+  // Custom staff roles defined by this gym
+  customStaffRoles: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +34,10 @@ const branchSchema = new Schema<IBranch>(
     accessHoursStart:   { type: String, default: '00:00' },
     accessHoursEnd:     { type: String, default: '23:59' },
     accessAllowedDays:  { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
+    gstEnabled:         { type: Boolean, default: false },
+    gstPercent:         { type: Number, default: 18 },
+    gstEffectiveDate:   Date,
+    customStaffRoles:   { type: [String], default: [] },
   },
   { timestamps: true },
 );

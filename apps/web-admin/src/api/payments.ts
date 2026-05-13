@@ -17,6 +17,8 @@ export interface Payment {
 
 export interface PaymentSummary {
   totalRevenue: number;
+  totalGst: number;
+  totalDiscount: number;
   count: number;
   byMode: { _id: string; total: number; count: number }[];
 }

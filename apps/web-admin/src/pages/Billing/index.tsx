@@ -99,17 +99,39 @@ export default function Billing() {
     >
       {/* Summary KPIs */}
       <div className="grid grid-cols-4 gap-4 mb-5">
+        {/* Total Revenue — with GST chip if applicable */}
+        <div className="relative">
+          <KpiCard
+            label="Total Revenue"
+            value={fmtCurrency(summary?.totalRevenue ?? 0)}
+            iconBg="bg-emerald-500/12"
+            icon={
+              <svg width="16" height="16" fill="none" stroke="#10B981" strokeWidth="2" viewBox="0 0 24 24">
+                <line x1="12" y1="1" x2="12" y2="23"/>
+                <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+              </svg>
+            }
+          />
+          {(summary?.totalGst ?? 0) > 0 && (
+            <span className="absolute top-3 right-3 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-400 font-semibold">
+              incl. GST
+            </span>
+          )}
+        </div>
+
+        {/* Net Revenue (after GST) */}
         <KpiCard
-          label="Total Revenue"
-          value={fmtCurrency(summary?.totalRevenue ?? 0)}
-          iconBg="bg-emerald-500/12"
+          label={(summary?.totalGst ?? 0) > 0 ? 'Net (ex-GST)' : 'Net Revenue'}
+          value={fmtCurrency((summary?.totalRevenue ?? 0) - (summary?.totalGst ?? 0))}
+          iconBg="bg-blue-500/12"
           icon={
-            <svg width="16" height="16" fill="none" stroke="#10B981" strokeWidth="2" viewBox="0 0 24 24">
+            <svg width="16" height="16" fill="none" stroke="#60A5FA" strokeWidth="2" viewBox="0 0 24 24">
               <line x1="12" y1="1" x2="12" y2="23"/>
               <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
             </svg>
           }
         />
+
         <KpiCard
           label="Total Transactions"
           value={(summary?.count ?? 0).toLocaleString()}
@@ -120,11 +142,24 @@ export default function Billing() {
             </svg>
           }
         />
-        {byMode.slice(0, 2).map((m) => (
+
+        {/* GST Collected (only shown when any GST was collected) */}
+        {(summary?.totalGst ?? 0) > 0 ? (
           <KpiCard
-            key={m._id}
-            label={m._id.toUpperCase()}
-            value={fmtCurrency(m.total)}
+            label="GST Collected"
+            value={fmtCurrency(summary?.totalGst ?? 0)}
+            iconBg="bg-amber-500/12"
+            icon={
+              <svg width="16" height="16" fill="none" stroke="#F59E0B" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M9 14l6-6M10 8h.01M14 12h.01M21 16V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2h14a2 2 0 002-2z"/>
+              </svg>
+            }
+          />
+        ) : byMode.length > 0 ? (
+          <KpiCard
+            key={byMode[0]!._id}
+            label={byMode[0]!._id.toUpperCase()}
+            value={fmtCurrency(byMode[0]!.total)}
             iconBg="bg-cyan-500/12"
             icon={
               <svg width="16" height="16" fill="none" stroke="#22D3EE" strokeWidth="2" viewBox="0 0 24 24">
@@ -132,7 +167,7 @@ export default function Billing() {
               </svg>
             }
           />
-        ))}
+        ) : null}
       </div>
 
       {/* Filters */}
