@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
+    "types": ["node"],
     "paths": {
       "@edge-gym/shared-types": ["../../packages/shared-types/src/index.ts"]
     }
