@@ -63,7 +63,8 @@ export async function buildApp() {
   // ── Routes ───────────────────────────────────────────────────────────────────
   const API = '/api/v1';
 
-  await fastify.register(healthRoutes);
+  await fastify.register(healthRoutes);                          // /health + /metrics (PM2 / load-balancer)
+  await fastify.register(healthRoutes, { prefix: API });         // /api/v1/health + /api/v1/metrics (frontend)
   await fastify.register(authRoutes,         { prefix: API });
   await fastify.register(memberRoutes,       { prefix: API });
   await fastify.register(membershipRoutes,   { prefix: API });

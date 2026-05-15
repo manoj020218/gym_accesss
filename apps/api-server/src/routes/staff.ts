@@ -4,6 +4,7 @@ import { Staff } from '../models/Staff.js';
 import { User } from '../models/User.js';
 import { AccessEvent } from '../models/AccessEvent.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { AccessDevice } from '../models/AccessDevice.js';
 import { requireRoles } from '../middleware/rbac.js';
 import { StaffRole, Zone } from '@edge-gym/shared-types';
 
@@ -142,6 +143,87 @@ const staffRoutes: FastifyPluginAsync = async (fastify) => {
         after: { permissions }, ip: req.ip,
       });
       return reply.send({ userId: user.id, permissions: user.permissions });
+    },
+  );
+
+  // POST /staff/:id/enroll-face — upload photo to U5 machine
+  fastify.post<{ Params: { id: string }; Body: { imageBase64?: string } }>(
+    '/staff/:id/enroll-face',
+    async (req, reply) => {
+      const staff = await Staff.findById(req.params.id);
+      if (!staff) return reply.status(404).send({ error: 'Not Found' });
+
+      const { imageBase64 } = (req.body ?? {}) as { imageBase64?: string };
+      if (!imageBase64) {
+        return reply.status(400).send({ error: 'Image required', hint: 'Upload a face photo.' });
+      }
+
+      const device = await AccessDevice.findOne({
+        branchId: staff.branchId,
+        isActive: true,
+        ipAddress: { $exists: true, $ne: null },
+      });
+
+      if (!device?.ipAddress) {
+        return reply.status(503).send({
+          error: 'No device found for this branch',
+          hint:  'Register and connect an access machine first.',
+        });
+      }
+
+      const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
+      const picLarge   = imageBase64.startsWith('data:')
+        ? imageBase64
+        : `data:image/jpeg;base64,${imageBase64}`;
+
+      let machineUserId: string | undefined;
+      try {
+        const u5Res = await fetch(`${machineUrl}/insertEmployee`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            password:           device.machinePassword ?? '123456',
+            name:               `${staff.firstName} ${staff.lastName}`.slice(0, 10),
+            id_number:          staff._id.toString(),
+            access_card_number: staff.rfidCardId ?? '',
+            pass_date:          '0',
+            pass_time:          '0',
+            pic_large:          picLarge,
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!u5Res.ok) {
+          return reply.status(502).send({
+            error: 'Machine rejected request',
+            hint:  `U5 responded with HTTP ${u5Res.status}`,
+          });
+        }
+
+        const u5Raw  = await u5Res.text();
+        const u5Data = JSON.parse(u5Raw) as { code: number; userId?: string };
+        if (u5Data.code !== 200) {
+          const hint = u5Data.code === 12
+            ? 'Face too similar to an existing employee — try a different photo'
+            : `U5 enrollment failed (code ${u5Data.code})`;
+          return reply.status(422).send({ error: 'Machine rejected enrollment', hint });
+        }
+
+        machineUserId = u5Data.userId;
+      } catch (err: unknown) {
+        const isTimeout = err instanceof Error && err.name === 'TimeoutError';
+        return reply.status(503).send({
+          error: isTimeout ? 'Machine timed out' : 'Cannot reach machine',
+          hint:  `Could not connect to ${machineUrl}. Check the device is on the same network.`,
+        });
+      }
+
+      await Staff.findByIdAndUpdate(req.params.id, machineUserId
+        ? { faceEnrolled: true, $addToSet: { machineUsers: { deviceCode: device.deviceCode, machineUserId } } }
+        : { faceEnrolled: true },
+      );
+
+      return reply.send({ enrolled: true, machineUserId, deviceCode: device.deviceCode });
     },
   );
 

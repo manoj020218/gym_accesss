@@ -486,7 +486,7 @@ function AccessHoursSettings() {
       {!activeBranch ? null : (
         <Card className="p-6 space-y-6">
           {/* Enable toggle */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-slate-200">Enable Access Hours</p>
               <p className="text-xs text-muted mt-0.5">
@@ -496,7 +496,7 @@ function AccessHoursSettings() {
             </div>
             <button
               onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 rounded-full flex-shrink-0 transition-colors ${
                 form.enabled ? 'bg-purple-600' : 'bg-white/[0.1]'
               }`}
             >
@@ -884,7 +884,9 @@ export default function Settings() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted">MongoDB Ping</span>
-                  <span className="text-slate-300">{String(health['mongoLatencyMs'] ?? '—')} ms</span>
+                  <span className="text-slate-300">
+                    {String((health['services'] as Record<string, unknown>)?.['mongoPingMs'] ?? '—')} ms
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted">Uptime</span>
@@ -892,7 +894,9 @@ export default function Settings() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted">Node Version</span>
-                  <span className="text-slate-300 font-mono text-xs">{String(health['nodeVersion'] ?? '—')}</span>
+                  <span className="text-slate-300 font-mono text-xs">
+                    {String((health['process'] as Record<string, unknown>)?.['version'] ?? '—')}
+                  </span>
                 </div>
               </div>
             ) : (

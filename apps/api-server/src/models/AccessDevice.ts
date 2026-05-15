@@ -34,6 +34,9 @@ export interface IAccessDevice extends Document {
   mqttPassword?: string;
   mqttLiveEnabled?: boolean; // true once configured and edge service confirmed connection
   mqttConnected?: boolean;  // live status: updated on each heartbeat from edge service
+  // Device make/type — used to determine live access method
+  make?: 'u5' | 'zkteco' | 'hikvision' | 'ebkn' | 'matrix' | 'other';
+  liveAccessMethod?: 'mqtt' | 'websocket' | 'none';
 }
 
 const accessDeviceSchema = new Schema<IAccessDevice>(
@@ -58,6 +61,8 @@ const accessDeviceSchema = new Schema<IAccessDevice>(
     mqttPassword:    String,
     mqttLiveEnabled: Boolean,
     mqttConnected:   Boolean,
+    make:            { type: String },
+    liveAccessMethod: { type: String },
     relayEnabled:  { type: Boolean, default: true },
     antiPassback:  { type: String, default: 'disabled' },
     secretKeyHash: { type: String, required: true, select: false },

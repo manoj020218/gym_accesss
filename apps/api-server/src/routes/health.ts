@@ -33,8 +33,8 @@ const healthRoutes: FastifyPluginAsync = async (fastify) => {
     });
   });
 
-  // GET /api/v1/metrics — process + MongoDB stats (no auth — internal use)
-  fastify.get('/api/v1/metrics', { config: { skipAuth: true } }, async (_req, reply) => {
+  // GET /metrics — process + MongoDB stats (no auth — internal use)
+  fastify.get('/metrics', { config: { skipAuth: true } }, async (_req, reply) => {
     const mem = process.memoryUsage();
     const conn = mongoose.connection;
 

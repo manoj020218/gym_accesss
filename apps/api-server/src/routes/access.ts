@@ -7,6 +7,7 @@ import { AccessDevice } from '../models/AccessDevice.js';
 import { DeviceSetupLog } from '../models/DeviceSetupLog.js';
 import { AccessDecision, Zone, SubjectType, StaffRole } from '@edge-gym/shared-types';
 import { Member } from '../models/Member.js';
+import { Staff }  from '../models/Staff.js';
 
 const ListQuery = z.object({
   branchId:    z.string().optional(),
@@ -426,22 +427,31 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const u5UserId = String(rec.userid ?? rec.userId ?? '');
 
       let member = null;
+      let staffSubject = null;
 
       // 3a. Primary: map lookup → id_number → Member (covers active enrollments)
-      const memberCode = u5UserId ? u5ToMemberCode.get(u5UserId) : undefined;
-      if (memberCode) {
-        member = await Member.findOne({ memberCode, branchId: device.branchId });
+      // Staff enroll-face stores staff._id as id_number, so check both.
+      const idNumber = u5UserId ? u5ToMemberCode.get(u5UserId) : undefined;
+      if (idNumber) {
+        member = await Member.findOne({ memberCode: idNumber, branchId: device.branchId });
+        if (!member) {
+          staffSubject = await Staff.findOne({ _id: idNumber, branchId: device.branchId });
+        }
       }
 
-      // 3b. Fallback: deleted enrollment — try matching by name stored on the punch record
-      // (WorkNote doesn't return name in this machine's firmware, so this catches future firmware variants)
-      if (!member && u5UserId && u5UserId !== '-1') {
+      // 3b. Fallback: machineUserId stored on the document (catches re-enrolled or deleted-then-re-added)
+      if (!member && !staffSubject && u5UserId && u5UserId !== '-1') {
         member = await Member.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': u5UserId });
+        if (!member) {
+          staffSubject = await Staff.findOne({ branchId: device.branchId, 'machineUsers.machineUserId': u5UserId });
+        }
       }
 
-      const subjectType = member ? 'member' : 'unknown';
-      const subjectId   = member ? member._id.toString() : null;
-      const subjectName = member ? `${member.firstName} ${member.lastName}` : null;
+      const subjectType = member ? 'member' : staffSubject ? 'staff' : 'unknown';
+      const subjectId   = member ? member._id.toString() : staffSubject ? staffSubject._id.toString() : null;
+      const subjectName = member
+        ? `${member.firstName} ${member.lastName}`
+        : staffSubject ? `${staffSubject.firstName} ${staffSubject.lastName}` : null;
       const decision    = rec.ispass === 0 ? 'DENY' : 'ALLOW';
 
       const seqHash = parseInt(

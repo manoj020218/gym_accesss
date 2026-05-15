@@ -10,6 +10,7 @@ import { paymentApi } from '../api/payments';
 import { memberApi } from '../api/members';
 import { accessApi } from '../api/access';
 import { reportsApi } from '../api/reports';
+import { productApi } from '../api/products';
 import { useAuthStore } from '../store/auth';
 import { fmtCurrency, fmtRelative, fmtDate } from '../utils/format';
 import { subDays, startOfDay, format } from 'date-fns';
@@ -40,6 +41,12 @@ export default function Dashboard() {
   const { data: expiring } = useQuery({
     queryKey: ['expiring', branchId],
     queryFn:  () => reportsApi.expiring({ branchId, days: 7 }),
+  });
+
+  const { data: broadcastProducts } = useQuery({
+    queryKey: ['products-broadcast', branchId],
+    queryFn:  () => productApi.list({ branchId, broadcast: true, isActive: true, limit: 20 }),
+    refetchInterval: 60_000,
   });
 
   const { data: weeklyRevenue } = useQuery({
@@ -212,6 +219,46 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Broadcast Products */}
+      {(broadcastProducts?.data?.length ?? 0) > 0 && (
+        <Card className="mt-4 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-pink-500" />
+              <h3 className="text-sm font-bold text-slate-200">Broadcast Products</h3>
+              <span className="text-[11px] text-muted">({broadcastProducts!.data.length} on air)</span>
+            </div>
+            <button
+              onClick={() => navigate('/products')}
+              className="text-xs text-purple-400 hover:text-purple-300"
+            >
+              Manage →
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {broadcastProducts!.data.map((p) => (
+              <button
+                key={p._id}
+                onClick={() => navigate('/products')}
+                className="flex flex-col gap-1 bg-white/[0.03] hover:bg-pink-500/[0.07] border border-white/[0.06] hover:border-pink-500/30 rounded-xl p-3 text-left transition-colors"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-pink-500 flex-shrink-0" />
+                  <p className="text-xs font-semibold text-slate-200 truncate">{p.name}</p>
+                </div>
+                {p.category && (
+                  <p className="text-[10px] text-muted truncate">{p.category}</p>
+                )}
+                <p className="text-sm font-bold text-pink-400 mt-0.5">
+                  ₹{p.price.toLocaleString('en-IN')}
+                  {p.gstIncluded && <span className="text-[9px] text-muted ml-1 font-normal">incl. GST</span>}
+                </p>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Weekly revenue sparkline */}
       {weeklyRevenue && weeklyRevenue.length > 0 && (

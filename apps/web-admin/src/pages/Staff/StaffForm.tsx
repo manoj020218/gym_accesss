@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Input, Select } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -6,6 +6,15 @@ import { staffApi } from '../../api/staff';
 import { branchApi } from '../../api/branches';
 import { useAuthStore } from '../../store/auth';
 import { toast } from '../../store/toast';
+
+function toBase64(file: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result as string);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
 
 const STD_ROLES = [
   { value: 'manager',      label: 'Manager' },
@@ -28,13 +37,12 @@ type FormState = {
   shiftStart: string; shiftEnd: string;
 };
 
-// Validation rules — returns error string or null
 const RULES: Partial<Record<keyof FormState, (v: string) => string | null>> = {
   firstName:  v => v.trim() ? null : 'First name is required',
   phone:      v => v.trim().length >= 10 ? null : 'Phone must be at least 10 digits',
   branchId:   v => v ? null : 'Branch is required',
-  shiftStart: v => !v || /^\d{2}:\d{2}$/.test(v) ? null : 'Use HH:MM (e.g. 08:00)',
-  shiftEnd:   v => !v || /^\d{2}:\d{2}$/.test(v) ? null : 'Use HH:MM (e.g. 20:00)',
+  shiftStart: v => !v || /^\d{2}:\d{2}(:\d{2})?$/.test(v) ? null : 'Use HH:MM format (e.g. 08:00)',
+  shiftEnd:   v => !v || /^\d{2}:\d{2}(:\d{2})?$/.test(v) ? null : 'Use HH:MM format (e.g. 20:00)',
 };
 
 function validate(form: FormState): Partial<Record<keyof FormState, string>> {
@@ -49,7 +57,7 @@ function validate(form: FormState): Partial<Record<keyof FormState, string>> {
 interface StaffMemberWithUserId {
   _id: string; firstName: string; lastName: string; phone: string; email?: string;
   role: string; branchId: string; rfidCardId?: string; userId?: string;
-  permissions?: string[]; shiftStart?: string; shiftEnd?: string;
+  permissions?: string[]; shiftStart?: string; shiftEnd?: string; faceEnrolled?: boolean;
 }
 
 interface Props { staffId?: string; onSuccess: () => void; }
@@ -58,6 +66,10 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
   const qc = useQueryClient();
   const { selectedBranchId, user: currentUser } = useAuthStore();
   const isOwner = currentUser?.role === 'owner';
+  const faceFileRef = useRef<HTMLInputElement>(null);
+  const [facePreview, setFacePreview] = useState<string | null>(null);
+  const [faceEnrolled, setFaceEnrolled] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
 
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', phone: '', email: '',
@@ -73,7 +85,6 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
   const isCustomRole = form.role === '__custom__';
   const effectiveRole = isCustomRole ? customRoleName.trim() : form.role;
 
-  // Fetch branch for custom roles list
   const { data: branches = [] } = useQuery({
     queryKey: ['branches'],
     queryFn:  () => branchApi.list(),
@@ -105,15 +116,14 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
     if (!isStdRole) setCustomRoleName(existing.role);
     setUserId(existing.userId ?? null);
     setPermissions(existing.permissions ?? []);
+    setFaceEnrolled(existing.faceEnrolled ?? false);
   }, [existing]);
 
-  // Field-level errors (only shown for touched fields)
   const allErrors = validate(form);
   const shownErrors = Object.fromEntries(
     Object.entries(allErrors).filter(([k]) => submitAttempted || touched[k as keyof FormState]),
   ) as Partial<Record<keyof FormState, string>>;
 
-  // Custom role validation
   const customRoleError = isCustomRole && submitAttempted && !customRoleName.trim()
     ? 'Role name is required'
     : undefined;
@@ -125,8 +135,7 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
       staffId
         ? staffApi.update(staffId, { ...form, role: effectiveRole })
         : staffApi.create({ ...form, role: effectiveRole }),
-    onSuccess: async () => {
-      // If a new custom role was typed, persist it on the branch so others can reuse it
+    onSuccess: async (data) => {
       if (isCustomRole && customRoleName.trim() && activeBranch) {
         const existing = activeBranch.customStaffRoles ?? [];
         if (!existing.includes(customRoleName.trim())) {
@@ -136,7 +145,25 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
           void qc.invalidateQueries({ queryKey: ['branches'] });
         }
       }
-      toast.success(staffId ? 'Staff updated' : 'Staff member added');
+
+      // Auto-enroll face when creating a new staff member with a photo
+      const resolvedId = staffId ?? (data as { _id: string })._id;
+      if (!staffId && facePreview && resolvedId) {
+        setEnrolling(true);
+        try {
+          await staffApi.enrollFace(resolvedId, facePreview);
+          toast.success('Staff member added with face enrolled on machine');
+          setFaceEnrolled(true);
+        } catch (err: unknown) {
+          const hint = (err as { response?: { data?: { hint?: string } } })?.response?.data?.hint;
+          toast.success('Staff member added');
+          toast.error(hint ?? 'Face enrollment failed — re-enroll from Edit');
+        } finally {
+          setEnrolling(false);
+        }
+      } else {
+        toast.success(staffId ? 'Staff updated' : 'Staff member added');
+      }
       onSuccess();
     },
     onError: (err: unknown) => {
@@ -150,6 +177,27 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
     onSuccess: () => toast.success('Permissions updated'),
   });
 
+  const enrollFaceMut = useMutation({
+    mutationFn: () => staffApi.enrollFace(staffId!, facePreview!),
+    onSuccess: () => {
+      toast.success('Face enrolled on machine');
+      setFaceEnrolled(true);
+      void qc.invalidateQueries({ queryKey: ['staff-item', staffId] });
+    },
+    onError: (err: unknown) => {
+      const hint = (err as { response?: { data?: { hint?: string } } })?.response?.data?.hint;
+      toast.error(hint ?? 'Face enrollment failed');
+    },
+  });
+
+  const handleFacePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const b64 = await toBase64(file);
+    setFacePreview(b64);
+    if (faceFileRef.current) faceFileRef.current.value = '';
+  };
+
   const touch = (k: keyof FormState) => () =>
     setTouched(t => ({ ...t, [k]: true }));
 
@@ -159,9 +207,14 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
       setTouched(t => ({ ...t, [k]: true }));
     };
 
+  const clearField = (k: keyof FormState) => () =>
+    setForm(f => ({ ...f, [k]: '' }));
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitAttempted(true);
+    // Mark all required fields as touched so errors show immediately
+    setTouched({ firstName: true, phone: true, branchId: true, shiftStart: true, shiftEnd: true });
     if (hasErrors) return;
     mut.mutate();
   };
@@ -169,7 +222,6 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
   const togglePerm = (key: string) =>
     setPermissions(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
 
-  // Build role options: standard + existing custom roles + "Add custom"
   const roleOptions = [
     ...STD_ROLES.filter(r => r.value !== '__custom__'),
     ...existingCustomRoles.map(r => ({ value: r, label: r })),
@@ -178,7 +230,7 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Error alert banner */}
+      {/* Error alert banner — shown after first submit attempt */}
       {submitAttempted && hasErrors && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex gap-3 items-start">
           <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-red-400 mt-0.5 shrink-0">
@@ -197,7 +249,7 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           <Input
-            label="First Name"
+            label="First Name *"
             value={form.firstName}
             onChange={set('firstName')}
             onBlur={touch('firstName')}
@@ -209,29 +261,34 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
             label="Last Name"
             value={form.lastName}
             onChange={set('lastName')}
+            onBlur={touch('lastName')}
             success={!!touched.lastName && !!form.lastName}
           />
         </div>
+
         <Input
-          label="Phone"
+          label="Phone *"
           value={form.phone}
           onChange={set('phone')}
           onBlur={touch('phone')}
           error={shownErrors.phone}
           success={!allErrors.phone && !!touched.phone && !!form.phone}
           type="tel"
+          placeholder="10-digit mobile number"
         />
+
         <Input
           label="Email (optional)"
           value={form.email}
           onChange={set('email')}
+          onBlur={touch('email')}
           success={!!touched.email && !!form.email}
           type="email"
         />
 
-        {/* Role + custom role */}
+        {/* Role */}
         <Select
-          label="Role"
+          label="Role *"
           options={roleOptions}
           value={form.role}
           error={submitAttempted && !form.role ? 'Role is required' : undefined}
@@ -273,33 +330,52 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
               </div>
             )}
             <p className="text-[11px] text-muted">
-              This role will be saved to the branch so you can reuse it for future staff.
+              This role will be saved to the branch for future reuse.
             </p>
           </div>
         )}
 
-        {/* Shift hours */}
+        {/* Shift hours — text inputs so they can be left blank */}
         <div>
-          <p className="text-xs font-semibold text-slate-400 mb-2">Shift Hours <span className="font-normal text-muted">(optional)</span></p>
+          <p className="text-xs font-semibold text-slate-400 mb-1.5">
+            Shift Hours
+            <span className="font-normal text-muted ml-1.5">(optional — leave blank if not fixed)</span>
+          </p>
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Start"
-              type="time"
-              value={form.shiftStart}
-              onChange={set('shiftStart')}
-              onBlur={touch('shiftStart')}
-              error={shownErrors.shiftStart}
-              success={!allErrors.shiftStart && !!touched.shiftStart && !!form.shiftStart}
-            />
-            <Input
-              label="End"
-              type="time"
-              value={form.shiftEnd}
-              onChange={set('shiftEnd')}
-              onBlur={touch('shiftEnd')}
-              error={shownErrors.shiftEnd}
-              success={!allErrors.shiftEnd && !!touched.shiftEnd && !!form.shiftEnd}
-            />
+            <div className="flex flex-col gap-1">
+              <Input
+                label="Start"
+                type="time"
+                value={form.shiftStart}
+                onChange={set('shiftStart')}
+                onBlur={touch('shiftStart')}
+                error={shownErrors.shiftStart}
+                success={!allErrors.shiftStart && !!touched.shiftStart && !!form.shiftStart}
+                style={{ colorScheme: 'dark' }}
+              />
+              {form.shiftStart && (
+                <button type="button" onClick={clearField('shiftStart')} className="text-[10px] text-muted hover:text-slate-300 text-left pl-1">
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <Input
+                label="End"
+                type="time"
+                value={form.shiftEnd}
+                onChange={set('shiftEnd')}
+                onBlur={touch('shiftEnd')}
+                error={shownErrors.shiftEnd}
+                success={!allErrors.shiftEnd && !!touched.shiftEnd && !!form.shiftEnd}
+                style={{ colorScheme: 'dark' }}
+              />
+              {form.shiftEnd && (
+                <button type="button" onClick={clearField('shiftEnd')} className="text-[10px] text-muted hover:text-slate-300 text-left pl-1">
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -307,17 +383,84 @@ export default function StaffForm({ staffId, onSuccess }: Props) {
           label="RFID Card ID (optional)"
           value={form.rfidCardId}
           onChange={set('rfidCardId')}
+          onBlur={touch('rfidCardId')}
           success={!!touched.rfidCardId && !!form.rfidCardId}
         />
 
+        {/* Face photo — inside form, above Save button */}
+        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-slate-400">
+              Face Photo
+              <span className="font-normal text-muted ml-1.5">(optional — for U5 attendance)</span>
+            </p>
+            {faceEnrolled && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 font-semibold">
+                Enrolled
+              </span>
+            )}
+          </div>
+
+          {facePreview ? (
+            <div className="flex items-start gap-4">
+              <img src={facePreview} alt="Face preview" className="w-20 h-20 object-cover rounded-xl border border-white/[0.1] flex-shrink-0" />
+              <div className="flex flex-col gap-2 pt-1">
+                {staffId ? (
+                  <Button
+                    size="sm"
+                    loading={enrollFaceMut.isPending}
+                    onClick={() => enrollFaceMut.mutate()}
+                    type="button"
+                  >
+                    Enroll on Machine
+                  </Button>
+                ) : (
+                  <p className="text-[11px] text-emerald-400 leading-relaxed">
+                    Photo will be enrolled on U5 automatically when you save.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setFacePreview(null)}
+                  className="text-xs text-muted hover:text-slate-300"
+                >
+                  Remove photo
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => faceFileRef.current?.click()}
+              className="w-full flex items-center gap-3 px-4 py-2.5 bg-white/[0.02] border border-dashed border-white/[0.1] rounded-xl text-muted hover:border-purple-500/40 hover:text-slate-300 transition-colors"
+            >
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              <span className="text-sm">
+                {faceEnrolled ? 'Upload new photo to re-enroll' : 'Upload face photo'}
+              </span>
+            </button>
+          )}
+
+          <input
+            ref={faceFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFacePick}
+          />
+        </div>
+
         <div className="flex gap-3 justify-end pt-1">
-          <Button type="submit" loading={mut.isPending}>
-            {staffId ? 'Save Changes' : 'Add Staff Member'}
+          <Button type="submit" loading={mut.isPending || enrolling}>
+            {staffId ? 'Save Changes' : (facePreview ? 'Add Staff & Enroll Face' : 'Add Staff Member')}
           </Button>
         </div>
       </form>
 
-      {/* Permissions — owner only, existing staff with login */}
+      {/* Portal permissions — owner only, existing staff with a login account */}
       {isOwner && staffId && userId && (
         <div className="border-t border-white/[0.06] pt-4">
           <p className="text-xs font-semibold tracking-widest text-dimmed mb-3">PORTAL PERMISSIONS</p>

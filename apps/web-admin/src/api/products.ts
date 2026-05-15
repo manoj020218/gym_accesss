@@ -7,15 +7,18 @@ export interface Product {
   branchId: string;
   category?: string;
   price: number;
-  costPrice?: number;
+  gstPercent: number;
+  gstIncluded: boolean;
+  photos: string[];
   stockQty: number;
   minStockLevel: number;
   isActive: boolean;
+  broadcastEnabled: boolean;
   createdAt: string;
 }
 
 export const productApi = {
-  list: (params: { branchId?: string; lowStock?: boolean; page?: number; limit?: number }) =>
+  list: (params: { branchId?: string; lowStock?: boolean; broadcast?: boolean; page?: number; limit?: number }) =>
     api.get<PaginatedResponse<Product>>('/products', { params }).then((r) => r.data),
 
   get: (id: string) => api.get<Product>(`/products/${id}`).then((r) => r.data),
@@ -24,6 +27,9 @@ export const productApi = {
 
   update: (id: string, body: Partial<Product>) =>
     api.put<Product>(`/products/${id}`, body).then((r) => r.data),
+
+  toggleBroadcast: (id: string, enabled: boolean) =>
+    api.patch<Product>(`/products/${id}/broadcast`, { enabled }).then((r) => r.data),
 
   remove: (id: string) => api.delete(`/products/${id}`),
 

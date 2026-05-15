@@ -79,7 +79,7 @@ export default function StaffList() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['Name', 'Role', 'Phone', 'RFID', 'Status', 'Since', isManager ? '' : ''].filter(Boolean).map((h) => (
+                {['Name', 'Role', 'Phone', 'RFID', 'Face', 'Status', 'Since', isManager ? '' : ''].filter(Boolean).map((h) => (
                   <th key={h} className="text-left text-[11px] font-semibold text-dimmed tracking-widest uppercase px-5 py-3.5">
                     {h}
                   </th>
@@ -107,6 +107,13 @@ export default function StaffList() {
                   </td>
                   <td className="px-5 py-3.5 text-sm text-slate-400">{s.phone}</td>
                   <td className="px-5 py-3.5 text-xs font-mono text-muted">{s.rfidCardId ?? '—'}</td>
+                  <td className="px-5 py-3.5">
+                    {s.faceEnrolled ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 font-semibold">Enrolled</span>
+                    ) : (
+                      <span className="text-[11px] text-muted">—</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3.5">
                     <Badge variant={s.isActive ? 'active' : 'blocked'}>{s.isActive ? 'Active' : 'Inactive'}</Badge>
                   </td>

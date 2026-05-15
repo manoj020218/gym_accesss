@@ -6,12 +6,14 @@ export interface StaffMember {
   lastName: string;
   phone: string;
   email?: string;
-  role: string; // standard roles + custom gym-specific roles
+  role: string;
   branchId: string;
   isActive: boolean;
   rfidCardId?: string;
   shiftStart?: string;
   shiftEnd?: string;
+  faceEnrolled?: boolean;
+  machineUsers?: { deviceCode: string; machineUserId: string }[];
   createdAt: string;
 }
 
@@ -31,6 +33,12 @@ export const staffApi = {
 
   attendance: (id: string, params: { from?: string; to?: string }) =>
     api.get(`/staff/${id}/attendance`, { params }).then((r) => r.data),
+
+  enrollFace: (id: string, imageBase64: string) =>
+    api.post<{ enrolled: boolean; machineUserId?: string; deviceCode?: string }>(
+      `/staff/${id}/enroll-face`,
+      { imageBase64 },
+    ).then((r) => r.data),
 
   updatePermissions: (userId: string, permissions: string[]) =>
     api.put<{ userId: string; permissions: string[] }>(`/users/${userId}/permissions`, { permissions }).then((r) => r.data),

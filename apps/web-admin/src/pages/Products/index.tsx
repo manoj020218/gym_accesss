@@ -41,6 +41,15 @@ export default function ProductsList() {
     },
   });
 
+  const broadcastMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      productApi.toggleBroadcast(id, enabled),
+    onSuccess: (updated) => {
+      toast.success(updated.broadcastEnabled ? 'Broadcast ON' : 'Broadcast OFF');
+      void qc.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+
   const products = data?.data ?? [];
   const lowCount = products.filter((p) => p.stockQty <= p.minStockLevel).length;
 
@@ -93,7 +102,7 @@ export default function ProductsList() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/[0.06]">
-                {['Product', 'SKU', 'Price', 'Cost', 'Stock', 'Min Stock', isManager ? 'Actions' : ''].filter(Boolean).map((h) => (
+                {['Product', 'SKU', 'Price', 'Stock', 'Min Stock', 'Broadcast', isManager ? 'Actions' : ''].filter(Boolean).map((h) => (
                   <th key={h} className="text-left text-[11px] font-semibold text-dimmed tracking-widest uppercase px-5 py-3.5">
                     {h}
                   </th>
@@ -110,17 +119,35 @@ export default function ProductsList() {
                       {p.category && <p className="text-[11px] text-muted">{p.category}</p>}
                     </td>
                     <td className="px-5 py-3.5 text-xs font-mono text-muted">{p.sku ?? '—'}</td>
-                    <td className="px-5 py-3.5 text-sm text-slate-300">{fmtCurrency(p.price)}</td>
-                    <td className="px-5 py-3.5 text-sm text-muted">{p.costPrice ? fmtCurrency(p.costPrice) : '—'}</td>
+                    <td className="px-5 py-3.5">
+                      <p className="text-sm text-slate-300">{fmtCurrency(p.price)}</p>
+                      {p.gstIncluded && <p className="text-[10px] text-emerald-500/70">incl. GST</p>}
+                    </td>
                     <td className="px-5 py-3.5">
                       <span className={`text-sm font-semibold ${isLow ? 'text-amber-400' : 'text-emerald-400'}`}>
                         {p.stockQty}
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-sm text-muted">{p.minStockLevel}</td>
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={() => broadcastMut.mutate({ id: p._id, enabled: !p.broadcastEnabled })}
+                        disabled={broadcastMut.isPending}
+                        className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                          p.broadcastEnabled ? 'bg-pink-600' : 'bg-white/[0.1]'
+                        }`}
+                        title={p.broadcastEnabled ? 'Broadcast ON — click to turn off' : 'Broadcast OFF — click to turn on'}
+                      >
+                        <span
+                          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                            p.broadcastEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                          }`}
+                        />
+                      </button>
+                    </td>
                     {isManager && (
                       <td className="px-5 py-3.5">
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
                           <button
                             onClick={() => setStockInId(p._id)}
                             className="text-xs text-cyan-400 hover:text-cyan-300"

@@ -10,23 +10,25 @@ import { StaffRole, PaymentMode } from '@edge-gym/shared-types';
 const CreateBody = z.object({
   branchId:      z.string(),
   name:          z.string().min(1),
-  category:      z.string().min(1),
+  category:      z.string().optional(),
   sku:           z.string().optional(),
-  unitPrice:     z.number().positive(),
-  costPrice:     z.number().positive().optional(),
+  price:         z.number().positive(),
   gstPercent:    z.number().min(0).max(100).default(18),
-  currentStock:  z.number().int().min(0).default(0),
+  gstIncluded:   z.boolean().default(false),
+  photos:        z.string().array().max(3).optional(),
+  stockQty:      z.number().int().min(0).default(0),
   minStockLevel: z.number().int().min(0).default(5),
 });
 
 const UpdateBody = CreateBody.omit({ branchId: true }).partial().extend({
-  isActive: z.boolean().optional(),
+  isActive:         z.boolean().optional(),
+  broadcastEnabled: z.boolean().optional(),
 });
 
 const StockInBody = z.object({
-  qty:       z.number().int().positive(),
-  unitPrice: z.number().positive().optional(),
-  notes:     z.string().optional(),
+  qty:   z.number().int().positive(),
+  price: z.number().positive().optional(),
+  notes: z.string().optional(),
 });
 
 const SellBody = z.object({
@@ -42,6 +44,7 @@ const ListQuery = z.object({
   category:  z.string().optional(),
   lowStock:  z.coerce.boolean().optional(),
   isActive:  z.coerce.boolean().optional(),
+  broadcast: z.coerce.boolean().optional(),
   page:      z.coerce.number().default(1),
   limit:     z.coerce.number().default(20),
 });
@@ -59,10 +62,11 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
       filter['branchId'] = q.branchId;
     }
 
-    if (q.category)              filter['category'] = q.category;
-    if (q.isActive !== undefined) filter['isActive'] = q.isActive;
+    if (q.category)                    filter['category'] = q.category;
+    if (q.isActive !== undefined)      filter['isActive'] = q.isActive;
+    if (q.broadcast !== undefined)     filter['broadcastEnabled'] = q.broadcast;
     if (q.lowStock) {
-      filter['$expr'] = { $lte: ['$currentStock', '$minStockLevel'] };
+      filter['$expr'] = { $lte: ['$stockQty', '$minStockLevel'] };
     }
 
     const skip  = (q.page - 1) * q.limit;
@@ -124,6 +128,21 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // PATCH /products/:id/broadcast — toggle broadcast on/off
+  fastify.patch<{ Params: { id: string }; Body: { enabled: boolean } }>(
+    '/products/:id/broadcast',
+    { preHandler: requireRoles(StaffRole.Owner, StaffRole.Manager) },
+    async (req, reply) => {
+      const product = await Product.findByIdAndUpdate(
+        req.params.id,
+        { broadcastEnabled: req.body.enabled },
+        { new: true },
+      );
+      if (!product) return reply.status(404).send({ error: 'Not Found' });
+      return reply.send(product);
+    },
+  );
+
   // POST /products/:id/stock-in — restock / purchase
   fastify.post<{ Params: { id: string }; Body: z.infer<typeof StockInBody> }>(
     '/products/:id/stock-in',
@@ -133,8 +152,8 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
       const product = await Product.findById(req.params.id);
       if (!product) return reply.status(404).send({ error: 'Not Found' });
 
-      const unitPrice = body.unitPrice ?? product.costPrice ?? product.unitPrice;
-      product.currentStock += body.qty;
+      const unitPrice = body.price ?? product.price;
+      product.stockQty += body.qty;
       await product.save();
 
       const tx = await InventoryTransaction.create({
@@ -160,16 +179,20 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
       const product = await Product.findById(req.params.id);
       if (!product) return reply.status(404).send({ error: 'Not Found' });
       if (!product.isActive) return reply.status(400).send({ error: 'Product is inactive' });
-      if (product.currentStock < body.qty) {
-        return reply.status(400).send({ error: 'Insufficient stock', available: product.currentStock });
+      if (product.stockQty < body.qty) {
+        return reply.status(400).send({ error: 'Insufficient stock', available: product.stockQty });
       }
 
-      const subtotal   = product.unitPrice * body.qty;
+      // If price is GST-inclusive, back-calculate the base price
+      const basePrice  = product.gstIncluded
+        ? product.price / (1 + product.gstPercent / 100)
+        : product.price;
+      const subtotal   = basePrice * body.qty;
       const discounted = subtotal - body.discount;
       const gstAmount  = discounted * product.gstPercent / 100;
       const total      = discounted + gstAmount;
 
-      product.currentStock -= body.qty;
+      product.stockQty -= body.qty;
       await product.save();
 
       const [tx, payment] = await Promise.all([
@@ -178,7 +201,7 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
           productId:   product.id,
           type:        'sale',
           qty:         body.qty,
-          unitPrice:   product.unitPrice,
+          unitPrice:   product.price,
           totalAmount: total,
           memberId:    body.memberId,
           doneBy:      req.actor.sub,
@@ -199,7 +222,7 @@ const productRoutes: FastifyPluginAsync = async (fastify) => {
         }),
       ]);
 
-      return reply.status(201).send({ transaction: tx, payment, remainingStock: product.currentStock });
+      return reply.status(201).send({ transaction: tx, payment, remainingStock: product.stockQty });
     },
   );
 };

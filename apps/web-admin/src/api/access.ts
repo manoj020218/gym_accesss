@@ -42,6 +42,7 @@ export const accessApi = {
     branchId?: string;
     zone?: string;
     decision?: string;
+    subjectType?: 'member' | 'staff' | 'visitor';
     from?: string;
     to?: string;
     page?: number;

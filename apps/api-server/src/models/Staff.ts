@@ -1,5 +1,10 @@
 import { Schema, model, type Document } from 'mongoose';
-import type { StaffRole, Zone } from '@edge-gym/shared-types';
+import type { Zone } from '@edge-gym/shared-types';
+
+export interface IMachineUser {
+  deviceCode: string;
+  machineUserId: string;
+}
 
 export interface IStaff extends Document {
   branchId: string;
@@ -8,11 +13,13 @@ export interface IStaff extends Document {
   lastName: string;
   phone: string;
   email?: string;
-  role: StaffRole;
+  role: string;
   allowedZones: Zone[];
-  shiftStart: string;
-  shiftEnd: string;
+  shiftStart?: string;
+  shiftEnd?: string;
   rfidCardId?: string;
+  faceEnrolled: boolean;
+  machineUsers: IMachineUser[];
   isActive: boolean;
   joinedAt: Date;
   createdAt: Date;
@@ -29,9 +36,14 @@ const staffSchema = new Schema<IStaff>(
     email:       { type: String, lowercase: true },
     role:        { type: String, required: true },
     allowedZones: [String],
-    shiftStart:  { type: String, required: true },
-    shiftEnd:    { type: String, required: true },
+    shiftStart:  { type: String },
+    shiftEnd:    { type: String },
     rfidCardId:  { type: String, sparse: true },
+    faceEnrolled: { type: Boolean, default: false },
+    machineUsers: {
+      type: [{ deviceCode: String, machineUserId: String }],
+      default: [],
+    },
     isActive:    { type: Boolean, default: true },
     joinedAt:    { type: Date, default: Date.now },
   },

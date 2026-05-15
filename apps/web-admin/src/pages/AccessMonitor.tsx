@@ -32,7 +32,7 @@ const DECISION_OPTIONS = [
   { value: 'DENY',  label: 'Denied' },
 ];
 
-type Segment = 'members' | 'strangers';
+type Segment = 'members' | 'staff' | 'strangers';
 
 export default function AccessMonitor() {
   const qc = useQueryClient();
@@ -46,17 +46,20 @@ export default function AccessMonitor() {
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Member access events — no polling; WS triggers refetch
+  // Access events — filtered by segment; WS triggers refetch
+  const subjectTypeFilter = segment === 'staff' ? 'staff' : segment === 'members' ? 'member' : undefined;
   const { data, isLoading, refetch: refetchEvents } = useQuery({
-    queryKey: ['access-events', branchId, zone, decision, page],
+    queryKey: ['access-events', branchId, zone, decision, subjectTypeFilter, page],
     queryFn:  () =>
       accessApi.events({
         branchId,
-        zone:     zone     || undefined,
-        decision: decision || undefined,
+        zone:        zone || undefined,
+        decision:    decision || undefined,
+        subjectType: subjectTypeFilter,
         page,
-        limit:    30,
+        limit:       30,
       }),
+    enabled: segment !== 'strangers',
   });
 
   // WebSocket — real-time event push from server
@@ -194,17 +197,21 @@ export default function AccessMonitor() {
 
       {/* Segment toggle */}
       <div className="flex items-center gap-1 mb-5 p-1 bg-white/[0.04] border border-white/[0.07] rounded-xl w-fit">
-        {(['members', 'strangers'] as Segment[]).map((seg) => (
+        {([
+          { id: 'members',   label: 'Members' },
+          { id: 'staff',     label: 'Staff' },
+          { id: 'strangers', label: 'Strangers' },
+        ] as { id: Segment; label: string }[]).map((seg) => (
           <button
-            key={seg}
-            onClick={() => setSegment(seg)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
-              segment === seg
+            key={seg.id}
+            onClick={() => { setSegment(seg.id); setPage(1); }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              segment === seg.id
                 ? 'bg-purple-600 text-white shadow'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            {seg === 'strangers' ? 'Strangers' : 'Members'}
+            {seg.label}
           </button>
         ))}
       </div>
@@ -395,6 +402,72 @@ export default function AccessMonitor() {
                 >
                   Next →
                 </button>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* ── STAFF SEGMENT ── */}
+      {segment === 'staff' && (
+        <>
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <div className="w-44">
+              <Select options={ZONE_OPTIONS} value={zone} onChange={(e) => { setZone(e.target.value); setPage(1); }} />
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => void refetchEvents()}>Refresh</Button>
+              <span className="text-xs text-muted">{(data?.total ?? 0).toLocaleString()} events</span>
+            </div>
+          </div>
+
+          <Card>
+            {isLoading ? (
+              <PageSpinner />
+            ) : (data?.data ?? []).length === 0 ? (
+              <EmptyState
+                title="No staff access events"
+                description="Staff members appear here once enrolled on a device and checked in."
+              />
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    {['Decision', 'Staff Member', 'Zone', 'Identifier', 'Device', 'Time'].map((h) => (
+                      <th key={h} className="text-left text-[11px] font-semibold text-dimmed tracking-widest uppercase px-5 py-3.5">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.data ?? []).map((ev) => (
+                    <tr key={ev._id} className="border-b border-white/[0.04] hover:bg-purple-500/[0.03] last:border-0">
+                      <td className="px-5 py-3">
+                        <Badge variant={ev.decision === 'ALLOW' ? 'allow' : 'deny'}>{ev.decision}</Badge>
+                      </td>
+                      <td className="px-5 py-3">
+                        <p className="text-sm text-slate-200 font-medium">{ev.subjectName ?? ev.subjectId}</p>
+                        <p className="text-[11px] text-muted">Staff</p>
+                      </td>
+                      <td className="px-5 py-3 text-sm text-slate-400">{ev.zone.replace(/_/g, ' ')}</td>
+                      <td className="px-5 py-3">
+                        <span className="text-xs bg-white/[0.05] border border-white/[0.08] rounded px-2 py-0.5 text-slate-400">
+                          {ev.identifierUsed}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-muted font-mono">{ev.edgeDeviceId}</td>
+                      <td className="px-5 py-3 text-xs text-muted">{fmtDatetime(ev.eventTime)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {Math.ceil((data?.total ?? 0) / 30) > 1 && (
+              <div className="flex items-center justify-between px-5 py-3.5 border-t border-white/[0.06]">
+                <button disabled={page === 1} onClick={() => setPage((p) => p - 1)} className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40">← Prev</button>
+                <span className="text-xs text-muted">Page {page} of {Math.ceil((data?.total ?? 0) / 30)}</span>
+                <button disabled={page === Math.ceil((data?.total ?? 0) / 30)} onClick={() => setPage((p) => p + 1)} className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40">Next →</button>
               </div>
             )}
           </Card>
