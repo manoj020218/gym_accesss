@@ -25,11 +25,12 @@ const APP_VERSION: string = (() => {
 // Simple semver comparison: returns true if `latest` is strictly newer than `current`
 function isNewer(latest: string, current: string): boolean {
   const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
-  const [lM, lm, lp] = parse(latest);
-  const [cM, cm, cp] = parse(current);
+  const lp = parse(latest),  cp = parse(current);
+  const [lM = 0, lm = 0, lP = 0] = lp;
+  const [cM = 0, cm = 0, cP = 0] = cp;
   if (lM !== cM) return lM > cM;
   if (lm !== cm) return lm > cm;
-  return lp > cp;
+  return lP > cP;
 }
 
 const BackupScheduleBody = z.object({
