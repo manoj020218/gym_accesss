@@ -1,5 +1,8 @@
 import cron from 'node-cron';
 import type { BaseLogger } from 'pino';
+import { runBackup }            from '../routes/admin.js';
+import { SystemConfig }         from '../models/SystemConfig.js';
+import type { BackupSchedule }  from '../routes/admin.js';
 import { Membership }           from '../models/Membership.js';
 import { Member }               from '../models/Member.js';
 import { SyncCheckpoint }       from '../models/SyncCheckpoint.js';
@@ -143,6 +146,40 @@ export function startWorker(log: BaseLogger): void {
 
     if (totalArchived > 0) {
       log.info(`[worker] Archived ${totalArchived} access events (>${ARCHIVE_RETENTION_DAYS} days old)`);
+    }
+  });
+
+  // ── Scheduled backup — runs every 15 min, checks schedule settings ──────────
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const doc = await SystemConfig.findOne({ key: 'backupSchedule' }).lean();
+      const sched = (doc?.value ?? {}) as Partial<BackupSchedule>;
+      if (!sched.enabled) return;
+
+      const now       = new Date();
+      const hour      = now.getHours();
+      const minute    = now.getMinutes();
+      const dayOfWeek = now.getDay();
+
+      const targetHour   = sched.hour   ?? 3;
+      const targetMinute = sched.minute ?? 0;
+
+      // Only fire in the correct 15-min window
+      const inWindow = hour === targetHour && minute >= targetMinute && minute < targetMinute + 15;
+      if (!inWindow) return;
+
+      if (sched.interval === 'weekly' && dayOfWeek !== (sched.dayOfWeek ?? 0)) return;
+
+      // Avoid double-run: check if last backup was <12h ago
+      const lastDoc = await SystemConfig.findOne({ key: 'lastBackup' }).lean();
+      const lastTs  = (lastDoc?.value as Record<string, string> | undefined)?.['timestamp'];
+      if (lastTs && Date.now() - new Date(lastTs).getTime() < 12 * 3_600_000) return;
+
+      log.info('[worker] Running scheduled backup');
+      const fname = await runBackup('scheduler');
+      log.info(`[worker] Scheduled backup saved: ${fname}`);
+    } catch (err) {
+      log.error(err, '[worker] Scheduled backup failed');
     }
   });
 

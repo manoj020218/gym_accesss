@@ -1,0 +1,40 @@
+server {
+    listen 80;
+    server_name smartgym.iotsoft.in;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name smartgym.iotsoft.in;
+
+    ssl_certificate     /etc/letsencrypt/live/smartgym.iotsoft.in/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/smartgym.iotsoft.in/privkey.pem;
+
+    # ── Web Admin PWA ─────────────────────────────────────────────────────────
+    root /opt/edge-gym/apps/web-admin/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── API Server (Fastify on port 8080) ────────────────────────────────────
+    location /api/ {
+        proxy_pass         http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_read_timeout 120s;
+    }
+
+    # ── Release manifest — served as static file ─────────────────────────────
+    # Update /opt/edge-gym/releases/latest.json when cutting a new release.
+    location /releases/ {
+        alias /opt/edge-gym/releases/;
+        add_header Cache-Control "no-cache, must-revalidate";
+        add_header Access-Control-Allow-Origin "*";
+    }
+}

@@ -1,13 +1,31 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginWithGoogle, loginAsDev } from '../api/auth';
+import { loginWithGoogle, loginAsDev, loginWithSeed } from '../api/auth';
 import { Spinner } from '../components/ui/Spinner';
 import { Toaster } from '../components/ui/Toast';
 import { toast } from '../store/toast';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [showDemo, setShowDemo]     = useState(false);
+  const [demoUser, setDemoUser]     = useState('');
+  const [demoPass, setDemoPass]     = useState('');
+  const [showPass, setShowPass]     = useState(false);
+
+  const handleSeedLogin = async () => {
+    if (!demoUser || !demoPass) { toast.error('Enter username and password'); return; }
+    setLoading(true);
+    try {
+      await loginWithSeed(demoUser, demoPass);
+      navigate('/dashboard');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -107,21 +125,77 @@ export default function Login() {
 
           <div className="flex items-center gap-3 my-5">
             <div className="flex-1 h-px bg-white/[0.08]" />
-            <span className="text-xs text-dimmed">Gym staff only</span>
+            <span className="text-xs text-dimmed">or</span>
             <div className="flex-1 h-px bg-white/[0.08]" />
           </div>
 
-          {/* Dev login — only shown in local Vite dev mode */}
-          {import.meta.env.DEV && (
+          {/* Demo / Seed login */}
+          {!showDemo ? (
             <button
-              onClick={handleDevLogin}
+              onClick={() => setShowDemo(true)}
+              className="w-full text-center text-xs text-slate-500 hover:text-slate-400 transition-colors py-1"
+            >
+              Demo / Client Login →
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Username (e.g. GYMDEMO)"
+                  value={demoUser}
+                  onChange={(e) => setDemoUser(e.target.value)}
+                  autoComplete="username"
+                  className="w-full px-4 py-2.5 rounded-[10px] text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-purple-500/50 transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                />
+              </div>
+              <div className="relative">
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  placeholder="Password"
+                  value={demoPass}
+                  onChange={(e) => setDemoPass(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void handleSeedLogin()}
+                  autoComplete="current-password"
+                  className="w-full px-4 py-2.5 rounded-[10px] text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-purple-500/50 transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  tabIndex={-1}
+                >
+                  {showPass ? (
+                    <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  ) : (
+                    <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  )}
+                </button>
+              </div>
+              <button
+                onClick={() => void handleSeedLogin()}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-2 rounded-[10px] py-2.5 px-5 font-semibold text-sm transition-all disabled:opacity-60"
+                style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.4)', color: '#c4b5fd' }}
+              >
+                {loading ? <Spinner size={16} className="text-purple-400" /> : null}
+                Sign In
+              </button>
+              <button onClick={() => setShowDemo(false)} className="w-full text-xs text-slate-600 hover:text-slate-400 text-center py-1">
+                ← Back to Google Login
+              </button>
+            </div>
+          )}
+
+          {/* Dev login — only shown in local Vite dev mode */}
+          {import.meta.env.DEV && !showDemo && (
+            <button
+              onClick={() => void handleDevLogin()}
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 rounded-[10px] py-3 px-5 font-semibold text-sm transition-all disabled:opacity-60"
-              style={{
-                background: 'rgba(16,185,129,0.12)',
-                border: '1px solid rgba(16,185,129,0.35)',
-                color: '#10b981',
-              }}
+              className="w-full flex items-center justify-center gap-2 rounded-[10px] py-2.5 px-5 font-semibold text-sm transition-all disabled:opacity-60 mt-2"
+              style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)', color: '#10b981' }}
             >
               {loading ? <Spinner size={16} className="text-emerald-400" /> : '🧪'}
               Dev Login (local only)

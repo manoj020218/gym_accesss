@@ -11,6 +11,7 @@ import type { JwtPayload } from '@edge-gym/shared-types';
 
 import healthRoutes       from './routes/health.js';
 import authRoutes         from './routes/auth.js';
+import adminRoutes        from './routes/admin.js';
 import memberRoutes       from './routes/members.js';
 import membershipRoutes   from './routes/memberships.js';
 import edgeSyncRoutes     from './routes/edge-sync.js';
@@ -77,6 +78,7 @@ export async function buildApp() {
   await fastify.register(paymentRoutes,      { prefix: API });
   await fastify.register(notificationRoutes, { prefix: `${API}/notifications` });
   await fastify.register(memberPlanRoutes,   { prefix: API });
+  await fastify.register(adminRoutes,        { prefix: API });
 
   // ── Global error handler ─────────────────────────────────────────────────────
   fastify.setErrorHandler((err, _req, reply) => {

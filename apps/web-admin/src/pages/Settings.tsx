@@ -14,8 +14,9 @@ import { useRole } from '../hooks/useRole';
 import { toast } from '../store/toast';
 import { api } from '../api/client';
 import { fmtDate } from '../utils/format';
+import { adminApi, type BackupSchedule } from '../api/admin';
 
-type Tab = 'branches' | 'profile' | 'system' | 'liveaccess' | 'accesshours' | 'billing';
+type Tab = 'branches' | 'profile' | 'system' | 'liveaccess' | 'accesshours' | 'billing' | 'version';
 
 function BranchForm({ branch, onSuccess }: { branch?: Branch; onSuccess: () => void }) {
   const [form, setForm] = useState({
@@ -587,6 +588,281 @@ function AccessHoursSettings() {
   );
 }
 
+// ── Version & Updates + Backup ────────────────────────────────────────────────
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function VersionSettings() {
+  const qc = useQueryClient();
+  const { isOwner } = useRole();
+
+  const { data: ver } = useQuery({
+    queryKey: ['admin-version'],
+    queryFn:  () => adminApi.version(),
+  });
+
+  const { data: updateResult, isFetching: checking, refetch: checkUpdate } = useQuery({
+    queryKey: ['admin-update-check'],
+    queryFn:  () => adminApi.checkUpdate(),
+    enabled:  false,
+    retry:    false,
+  });
+
+  const { data: backupList, isLoading: backupListLoading, refetch: refreshBackupList } = useQuery({
+    queryKey: ['admin-backup-list'],
+    queryFn:  () => adminApi.backupList(),
+  });
+
+  const { data: schedule } = useQuery({
+    queryKey: ['admin-backup-schedule'],
+    queryFn:  () => adminApi.getSchedule(),
+  });
+
+  const [sched, setSched] = React.useState<BackupSchedule>({
+    enabled: false, interval: 'daily', hour: 3, minute: 0, dayOfWeek: 0,
+  });
+
+  React.useEffect(() => {
+    if (schedule) setSched(schedule);
+  }, [schedule]);
+
+  const saveSched = useMutation({
+    mutationFn: () => adminApi.saveSchedule(sched),
+    onSuccess:  () => { toast.success('Backup schedule saved'); void qc.invalidateQueries({ queryKey: ['admin-backup-schedule'] }); },
+  });
+
+  const applyUpdate = useMutation({
+    mutationFn: () => adminApi.applyUpdate(),
+    onSuccess:  (d) => toast.success(d.message),
+    onError:    () => toast.error('Update failed to start'),
+  });
+
+  const [backingUp, setBackingUp] = React.useState(false);
+
+  const handleBackupNow = async () => {
+    setBackingUp(true);
+    try {
+      adminApi.backupNow();
+      toast.success('Backup download started');
+      setTimeout(() => void refreshBackupList(), 3000);
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const clientVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+  const buildDate     = typeof __BUILD_DATE__   !== 'undefined' ? __BUILD_DATE__   : '—';
+
+  return (
+    <div className="max-w-2xl space-y-4">
+
+      {/* Current version card */}
+      <Card className="p-5">
+        <h3 className="text-sm font-bold text-slate-200 mb-4">Software Version</h3>
+        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
+          <div className="bg-white/[0.03] rounded-xl p-3">
+            <p className="text-[11px] text-muted mb-1">Web Admin</p>
+            <p className="text-base font-bold text-purple-400 font-mono">v{clientVersion}</p>
+            <p className="text-[10px] text-muted mt-0.5">Built {buildDate}</p>
+          </div>
+          <div className="bg-white/[0.03] rounded-xl p-3">
+            <p className="text-[11px] text-muted mb-1">API Server</p>
+            <p className="text-base font-bold text-cyan-400 font-mono">v{ver?.version ?? '…'}</p>
+            <p className="text-[10px] text-muted mt-0.5 truncate">{ver?.releasesUrl ?? '—'}</p>
+          </div>
+        </div>
+
+        {/* Update check result */}
+        {updateResult && (
+          <div className={`rounded-xl px-4 py-3 mb-4 border text-sm ${
+            updateResult.hasUpdate
+              ? 'bg-amber-500/10 border-amber-500/25'
+              : 'bg-emerald-500/10 border-emerald-500/25'
+          }`}>
+            {updateResult.hasUpdate ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-amber-300 font-semibold">
+                    Update available: v{updateResult.latest}
+                  </span>
+                  <span className="text-xs text-muted">{updateResult.releaseDate}</span>
+                </div>
+                {updateResult.changelog && (
+                  <p className="text-xs text-slate-400 whitespace-pre-line">{updateResult.changelog}</p>
+                )}
+                {isOwner && (
+                  <div className="pt-1">
+                    <p className="text-[11px] text-amber-400/70 mb-2">
+                      A backup will be taken automatically before updating. The server will restart (~60s downtime).
+                    </p>
+                    <Button
+                      size="sm"
+                      loading={applyUpdate.isPending}
+                      onClick={() => applyUpdate.mutate()}
+                    >
+                      Apply Update Now
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <svg width="14" height="14" fill="none" stroke="#10B981" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <span className="text-emerald-400">You're up to date — v{updateResult.current} is the latest</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          loading={checking}
+          onClick={() => void checkUpdate()}
+        >
+          Check for Update
+        </Button>
+      </Card>
+
+      {/* Backup Now + list */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-slate-200">Data Backup</h3>
+          {backupList?.lastBackup && (
+            <span className="text-[11px] text-muted">
+              Last: {new Date(backupList.lastBackup.timestamp).toLocaleString()}
+            </span>
+          )}
+        </div>
+
+        <p className="text-xs text-muted mb-4">
+          Backup exports all branches data (members, staff, memberships, payments, products, access events) as a compressed JSON file.
+          Scheduled backups are also saved on the server and listed below.
+        </p>
+
+        <Button size="sm" loading={backingUp} onClick={() => void handleBackupNow()}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download Backup Now
+        </Button>
+
+        {/* Saved backups list */}
+        {backupListLoading ? (
+          <PageSpinner />
+        ) : (backupList?.files?.length ?? 0) > 0 ? (
+          <div className="mt-4">
+            <p className="text-[11px] text-muted mb-2">Saved on server ({backupList!.files.length} files)</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {backupList!.files.map((f) => (
+                <div key={f.filename} className="flex items-center justify-between text-xs py-1.5 border-b border-white/[0.04] last:border-0">
+                  <span className="font-mono text-slate-400">{f.filename}</span>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                    <span className="text-muted">{(f.sizeBytes / 1024).toFixed(0)} KB</span>
+                    <button
+                      onClick={() => adminApi.downloadBackup(f.filename)}
+                      className="text-purple-400 hover:text-purple-300"
+                    >
+                      Download
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </Card>
+
+      {/* Backup schedule */}
+      {isOwner && (
+        <Card className="p-5 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-200">Automatic Backup Schedule</h3>
+              <p className="text-xs text-muted mt-0.5">Server saves a backup automatically at the configured time.</p>
+            </div>
+            <button
+              onClick={() => setSched((s) => ({ ...s, enabled: !s.enabled }))}
+              className={`relative w-12 h-6 rounded-full flex-shrink-0 transition-colors ${sched.enabled ? 'bg-purple-600' : 'bg-white/[0.1]'}`}
+            >
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${sched.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {sched.enabled && (
+            <div className="grid grid-cols-2 gap-4">
+              {/* Interval */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Frequency</label>
+                <div className="flex gap-2">
+                  {(['daily', 'weekly'] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setSched((s) => ({ ...s, interval: v }))}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors capitalize ${
+                        sched.interval === v
+                          ? 'bg-purple-600 border-purple-500 text-white'
+                          : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">Time (24h)</label>
+                <input
+                  type="time"
+                  value={`${String(sched.hour).padStart(2, '0')}:${String(sched.minute).padStart(2, '0')}`}
+                  onChange={(e) => {
+                    const [h, m] = e.target.value.split(':').map(Number);
+                    setSched((s) => ({ ...s, hour: h ?? 3, minute: m ?? 0 }));
+                  }}
+                  style={{ colorScheme: 'dark' }}
+                  className="w-full px-3 py-2 rounded-xl bg-white/[0.05] border border-white/[0.1] text-sm text-slate-200 focus:outline-none"
+                />
+              </div>
+
+              {/* Day of week (weekly only) */}
+              {sched.interval === 'weekly' && (
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-400 mb-2">Day</label>
+                  <div className="flex gap-2">
+                    {DAY_NAMES.map((d, i) => (
+                      <button
+                        key={d}
+                        onClick={() => setSched((s) => ({ ...s, dayOfWeek: i }))}
+                        className={`w-9 h-9 rounded-lg text-xs font-semibold transition-colors ${
+                          sched.dayOfWeek === i
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-white/[0.05] text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Button size="sm" loading={saveSched.isPending} onClick={() => saveSched.mutate()}>
+              Save Schedule
+            </Button>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ── GST / Billing Settings ─────────────────────────────────────────────────────
 function GstSettings() {
   const { selectedBranchId } = useAuthStore();
@@ -785,6 +1061,7 @@ export default function Settings() {
     { id: 'accesshours' as Tab, label: 'Access Hours' },
     { id: 'liveaccess'  as Tab, label: 'Live Access' },
     { id: 'system'      as Tab, label: 'System Health' },
+    { id: 'version'     as Tab, label: 'Version & Updates' },
   ];
 
   return (
@@ -930,6 +1207,9 @@ export default function Settings() {
 
       {/* LIVE ACCESS */}
       {tab === 'liveaccess' && <LiveAccessWizard />}
+
+      {/* VERSION & UPDATES */}
+      {tab === 'version' && <VersionSettings />}
 
       {/* Modals */}
       <Modal open={showBranch} onClose={() => setShowBranch(false)} title={editBranch ? 'Edit Branch' : 'New Branch'} width="max-w-md">

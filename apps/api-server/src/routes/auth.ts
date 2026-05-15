@@ -9,6 +9,41 @@ const RefreshBody = z.object({ refreshToken: z.string().min(1) });
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
 
+  // POST /auth/seed-login — demo / client handover login without Firebase
+  fastify.post<{ Body: { username: string; password: string } }>(
+    '/auth/seed-login',
+    { config: { skipAuth: true } },
+    async (req, reply) => {
+      type SeedEntry = { username: string; password: string; role: string; branchIds: string[]; displayName?: string };
+      let seeds: SeedEntry[] = [];
+      try { seeds = JSON.parse(config.SEED_LOGINS ?? '[]'); } catch { /* empty */ }
+      if (seeds.length === 0) return reply.status(404).send({ error: 'Seed login not configured on this server' });
+
+      const { username, password } = req.body ?? {};
+      if (!username || !password) return reply.status(400).send({ error: 'username and password required' });
+
+      const match = seeds.find((s) => s.username === username && s.password === password);
+      if (!match) return reply.status(401).send({ error: 'Invalid username or password' });
+
+      const payload = {
+        sub:         `seed-${username}`,
+        email:       `${username.toLowerCase()}@seed.local`,
+        role:        match.role,
+        branchIds:   match.branchIds,
+        permissions: [] as string[],
+      };
+      const accessToken  = fastify.jwt.sign(payload, { expiresIn: '24h' });
+      const refreshToken = fastify.jwt.sign(
+        { sub: payload.sub },
+        { secret: config.REFRESH_TOKEN_SECRET, expiresIn: config.REFRESH_TOKEN_EXPIRES_IN },
+      );
+      return reply.send({
+        accessToken, refreshToken,
+        user: { id: payload.sub, email: payload.email, displayName: match.displayName ?? match.username, role: match.role, branchIds: match.branchIds },
+      });
+    },
+  );
+
   // POST /auth/dev-login — only active when DEV_SKIP_FIREBASE=true
   if (config.DEV_SKIP_FIREBASE === 'true') {
     fastify.post(

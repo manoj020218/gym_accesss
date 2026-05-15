@@ -1,11 +1,37 @@
-[common]
-server_addr = your-vps-ip
-server_port = 7000
-token       = your_frp_token
+# =============================================================================
+# FRPC — Branch edge device → VPS tunnel
+# Copy to: /etc/frp/frpc.ini  (on branch mini-PC / Raspberry Pi)
+# Domain-based server_addr — VPS IP changes have zero client-side impact.
+# =============================================================================
 
-# Branch edge service → VPS tunnel
+[common]
+server_addr = smartgym.iotsoft.in
+server_port = 7000
+token        = your_frp_token_here
+
+# ── Branch 1: Edge service (access control decisions) ────────────────────────
 [edge-branch1]
 type        = tcp
 local_ip    = 127.0.0.1
 local_port  = 8091
 remote_port = 18091
+
+# ── Branch 1: SSH tunnel — remote update/management from VPS ─────────────────
+# From VPS: ssh <user>@localhost -p 22091
+[ssh-branch1]
+type        = tcp
+local_ip    = 127.0.0.1
+local_port  = 22
+remote_port = 22091
+
+# ── Branch 1: Hardware adapter health check ───────────────────────────────────
+[hw-health-branch1]
+type        = tcp
+local_ip    = 127.0.0.1
+local_port  = 8092
+remote_port = 18092
+
+# =============================================================================
+# For each additional branch: copy the 3 blocks above, change branch1→branch2,
+# and use unique remote ports (e.g. 18191 / 22191 / 18192 for branch 2).
+# =============================================================================

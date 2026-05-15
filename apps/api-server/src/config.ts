@@ -16,6 +16,12 @@ const Env = z.object({
   FIREBASE_PRIVATE_KEY:      z.string().min(1).default('dev-placeholder-key'),
   FCM_SERVER_KEY:            z.string().optional(),
   EDGE_SHARED_SECRET:        z.string().min(16),
+  // Seed logins — JSON array of {username,password,role,branchIds,displayName}
+  SEED_LOGINS:               z.string().optional(),
+  // Backup / Update pipeline
+  BACKUP_DIR:                z.string().default('./backups'),
+  RELEASES_URL:              z.string().default('https://smartgym.iotsoft.in/releases/latest.json'),
+  UPDATE_SCRIPT:             z.string().default('./scripts/update.sh'),
 });
 
 const parsed = Env.safeParse(process.env);

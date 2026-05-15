@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "releaseDate": "2026-05-15",
+  "changelog": "Initial production release.\n- Staff face attendance tracking\n- Product broadcast widget\n- Settings: toggle fixes, backup scheduler\n- Version & update pipeline"
+}

@@ -40,6 +40,15 @@ export async function loginWithGoogle(): Promise<void> {
   useAuthStore.getState().setAuth(accessToken, refreshToken, user);
 }
 
+export async function loginWithSeed(username: string, password: string): Promise<void> {
+  const res = await axios.post<{ accessToken: string; refreshToken: string; user: AuthUser }>(
+    `${BASE_URL}/api/v1/auth/seed-login`,
+    { username, password },
+  );
+  const { accessToken, refreshToken, user } = res.data;
+  useAuthStore.getState().setAuth(accessToken, refreshToken, user);
+}
+
 export async function loginAsDev(): Promise<void> {
   const res = await axios.post<{ accessToken: string; refreshToken: string; user: AuthUser }>(
     `${BASE_URL}/api/v1/auth/dev-login`,
