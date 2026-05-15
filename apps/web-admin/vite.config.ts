@@ -6,6 +6,7 @@ import { readFileSync } from 'fs';
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url).pathname, 'utf-8')) as { version: string };
 
 export default defineConfig({
+  base: '/admin/',
   plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
