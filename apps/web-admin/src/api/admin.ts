@@ -13,12 +13,6 @@ export interface UpdateCheckResult {
   releaseDate: string;
 }
 
-export interface BackupEntry {
-  filename:  string;
-  sizeBytes: number;
-  createdAt: string;
-}
-
 export interface BackupSchedule {
   enabled:   boolean;
   interval:  'daily' | 'weekly' | 'manual';
@@ -27,10 +21,6 @@ export interface BackupSchedule {
   dayOfWeek: number;
 }
 
-export interface BackupListResult {
-  files:      BackupEntry[];
-  lastBackup: { timestamp: string; filename: string; sizeBytes: number } | null;
-}
 
 export const adminApi = {
   version: () =>
@@ -46,15 +36,6 @@ export const adminApi = {
     // Trigger browser download via anchor element
     const a = document.createElement('a');
     a.href  = `${api.defaults.baseURL}/admin/backup`;
-    a.click();
-  },
-
-  backupList: () =>
-    api.get<BackupListResult>('/admin/backup/list').then((r) => r.data),
-
-  downloadBackup: (filename: string) => {
-    const a = document.createElement('a');
-    a.href  = `${api.defaults.baseURL}/admin/backup/download/${encodeURIComponent(filename)}`;
     a.click();
   },
 

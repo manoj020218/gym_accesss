@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z }                       from 'zod';
-import { createReadStream, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { resolve, join }           from 'node:path';
+import { resolve }                 from 'node:path';
 import { gzipSync }                from 'node:zlib';
 import { spawn }                   from 'node:child_process';
 import { createRequire }           from 'node:module';
@@ -43,8 +42,8 @@ const BackupScheduleBody = z.object({
 
 export type BackupSchedule = z.infer<typeof BackupScheduleBody>;
 
-// ── Backup helper ─────────────────────────────────────────────────────────────
-export async function runBackup(actorEmail: string, branchIds?: string[]): Promise<string> {
+// ── Backup helper — returns gzip Buffer in memory, no VPS disk write ──────────
+export async function runBackup(actorEmail: string, branchIds?: string[]): Promise<{ gz: Buffer; filename: string }> {
   const filter = branchIds ? { branchId: { $in: branchIds } } : {};
   const cutoff = new Date(Date.now() - 90 * 86_400_000);
 
@@ -64,23 +63,10 @@ export async function runBackup(actorEmail: string, branchIds?: string[]): Promi
     accessEvents: events,
   };
 
-  const json  = JSON.stringify(payload);
-  const gz    = gzipSync(Buffer.from(json));
-  const ts    = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const fname = `backup_${ts}.json.gz`;
-
-  const dir = resolve(config.BACKUP_DIR);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, fname), gz);
-
-  // Update last-backup timestamp in DB
-  await SystemConfig.findOneAndUpdate(
-    { key: 'lastBackup' },
-    { value: { timestamp: new Date().toISOString(), filename: fname, sizeBytes: gz.length } },
-    { upsert: true, new: true },
-  );
-
-  return fname;
+  const gz       = gzipSync(Buffer.from(JSON.stringify(payload)));
+  const ts       = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = `backup_${ts}.json.gz`;
+  return { gz, filename };
 }
 
 // ── Route plugin ──────────────────────────────────────────────────────────────
@@ -114,7 +100,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const scriptPath = resolve(config.UPDATE_SCRIPT);
     const dir        = resolve('.');
 
-    // Take a backup first (async, don't block response)
+    // Take a pre-update backup and discard the buffer (edge service handles its own backups)
     void runBackup(req.actor.email).catch((e) => fastify.log.error('[update] pre-backup failed: ' + String(e)));
 
     const child = spawn('bash', [scriptPath], { cwd: dir, detached: true, stdio: 'ignore' });
@@ -123,43 +109,14 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ status: 'started', message: 'Update script launched. API server will restart in ~60 seconds. Refresh this page after ~90 seconds.' });
   });
 
-  // GET /admin/backup — instant download
+  // GET /admin/backup — stream gzip directly to browser (no server-side storage)
   fastify.get('/admin/backup', { preHandler: requireRoles(StaffRole.Owner, StaffRole.Manager) }, async (req, reply) => {
-    const branchIds = req.actor.role === StaffRole.Owner ? undefined : req.actor.branchIds;
-    const fname     = await runBackup(req.actor.email, branchIds);
-    const filepath  = join(resolve(config.BACKUP_DIR), fname);
+    const branchIds   = req.actor.role === StaffRole.Owner ? undefined : req.actor.branchIds;
+    const { gz, filename } = await runBackup(req.actor.email, branchIds);
 
     void reply.header('Content-Type', 'application/gzip');
-    void reply.header('Content-Disposition', `attachment; filename="${fname}"`);
-    return reply.send(createReadStream(filepath));
-  });
-
-  // GET /admin/backup/list — list saved backups on VPS disk
-  fastify.get('/admin/backup/list', { preHandler: requireRoles(StaffRole.Owner, StaffRole.Manager) }, async (_req, reply) => {
-    const dir = resolve(config.BACKUP_DIR);
-    mkdirSync(dir, { recursive: true });
-    const files = readdirSync(dir)
-      .filter((f) => f.startsWith('backup_') && f.endsWith('.json.gz'))
-      .map((f) => {
-        const stat = statSync(join(dir, f));
-        return { filename: f, sizeBytes: stat.size, createdAt: stat.mtime.toISOString() };
-      })
-      .sort((a, b) => b.filename.localeCompare(a.filename))
-      .slice(0, 30);
-    const last = await SystemConfig.findOne({ key: 'lastBackup' }).lean();
-    return reply.send({ files, lastBackup: (last?.value as Record<string, unknown>) ?? null });
-  });
-
-  // GET /admin/backup/download/:filename
-  fastify.get<{ Params: { filename: string } }>('/admin/backup/download/:filename', {
-    preHandler: requireRoles(StaffRole.Owner, StaffRole.Manager),
-  }, async (req, reply) => {
-    const safe = req.params.filename.replace(/[^a-zA-Z0-9_\-.]/g, '');
-    const filepath = join(resolve(config.BACKUP_DIR), safe);
-    try { statSync(filepath); } catch { return reply.status(404).send({ error: 'Backup not found' }); }
-    void reply.header('Content-Type', 'application/gzip');
-    void reply.header('Content-Disposition', `attachment; filename="${safe}"`);
-    return reply.send(createReadStream(filepath));
+    void reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.send(gz);
   });
 
   // GET /admin/backup/schedule

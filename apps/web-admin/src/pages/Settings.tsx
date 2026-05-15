@@ -607,11 +607,6 @@ function VersionSettings() {
     retry:    false,
   });
 
-  const { data: backupList, isLoading: backupListLoading, refetch: refreshBackupList } = useQuery({
-    queryKey: ['admin-backup-list'],
-    queryFn:  () => adminApi.backupList(),
-  });
-
   const { data: schedule } = useQuery({
     queryKey: ['admin-backup-schedule'],
     queryFn:  () => adminApi.getSchedule(),
@@ -643,7 +638,6 @@ function VersionSettings() {
     try {
       adminApi.backupNow();
       toast.success('Backup download started');
-      setTimeout(() => void refreshBackupList(), 3000);
     } finally {
       setBackingUp(false);
     }
@@ -725,20 +719,14 @@ function VersionSettings() {
         </Button>
       </Card>
 
-      {/* Backup Now + list */}
+      {/* Backup Now */}
       <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-bold text-slate-200">Data Backup</h3>
-          {backupList?.lastBackup && (
-            <span className="text-[11px] text-muted">
-              Last: {new Date(backupList.lastBackup.timestamp).toLocaleString()}
-            </span>
-          )}
-        </div>
+        <h3 className="text-sm font-bold text-slate-200 mb-4">Data Backup</h3>
 
         <p className="text-xs text-muted mb-4">
-          Backup exports all branches data (members, staff, memberships, payments, products, access events) as a compressed JSON file.
-          Scheduled backups are also saved on the server and listed below.
+          Exports all branch data (members, staff, memberships, payments, products, access events) as a compressed JSON file.
+          The file downloads directly to your browser — no data is stored on the server.
+          Scheduled backups are saved on the edge PC in the configured backup folder.
         </p>
 
         <Button size="sm" loading={backingUp} onClick={() => void handleBackupNow()}>
@@ -748,31 +736,6 @@ function VersionSettings() {
           </svg>
           Download Backup Now
         </Button>
-
-        {/* Saved backups list */}
-        {backupListLoading ? (
-          <PageSpinner />
-        ) : (backupList?.files?.length ?? 0) > 0 ? (
-          <div className="mt-4">
-            <p className="text-[11px] text-muted mb-2">Saved on server ({backupList!.files.length} files)</p>
-            <div className="space-y-1 max-h-48 overflow-y-auto">
-              {backupList!.files.map((f) => (
-                <div key={f.filename} className="flex items-center justify-between text-xs py-1.5 border-b border-white/[0.04] last:border-0">
-                  <span className="font-mono text-slate-400">{f.filename}</span>
-                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
-                    <span className="text-muted">{(f.sizeBytes / 1024).toFixed(0)} KB</span>
-                    <button
-                      onClick={() => adminApi.downloadBackup(f.filename)}
-                      className="text-purple-400 hover:text-purple-300"
-                    >
-                      Download
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
       </Card>
 
       {/* Backup schedule */}
@@ -781,7 +744,7 @@ function VersionSettings() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-sm font-bold text-slate-200">Automatic Backup Schedule</h3>
-              <p className="text-xs text-muted mt-0.5">Server saves a backup automatically at the configured time.</p>
+              <p className="text-xs text-muted mt-0.5">Edge PC saves a backup automatically at the configured time.</p>
             </div>
             <button
               onClick={() => setSched((s) => ({ ...s, enabled: !s.enabled }))}
