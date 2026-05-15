@@ -1,9 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/auth';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { branchApi } from '../../api/branches';
 import { logout } from '../../api/auth';
 import { initials, avatarColor } from '../../utils/format';
+import AddDeviceWizard from '../../pages/Members/AddDeviceWizard';
 
 const navMain = [
   {
@@ -123,11 +124,13 @@ function NavItem({ to, label, icon, live }: { to: string; label: string; icon: R
   );
 }
 
-import React from 'react';
+import React, { useState } from 'react';
 
 export function Sidebar() {
   const { user, selectedBranchId, setSelectedBranch } = useAuthStore();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [showMachineWizard, setShowMachineWizard] = useState(false);
 
   const { data: branches = [] } = useQuery({
     queryKey: ['branches'],
@@ -187,6 +190,20 @@ export function Sidebar() {
             </select>
           </div>
         </div>
+
+        {/* Machine Installation button — one per branch */}
+        {selectedBranchId && (
+          <button
+            onClick={() => setShowMachineWizard(true)}
+            className="mt-2.5 w-full flex items-center gap-2 px-3 py-2 rounded-[9px] border border-dashed border-purple-500/30 text-[11px] font-semibold text-purple-400 hover:border-purple-500/60 hover:bg-purple-500/10 transition-all"
+          >
+            <svg fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13" viewBox="0 0 24 24">
+              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+              <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+            Machine Installation
+          </button>
+        )}
       </div>
 
       {/* Navigation */}
@@ -226,6 +243,17 @@ export function Sidebar() {
           </svg>
         </button>
       </div>
+      {showMachineWizard && selectedBranchId && (
+        <AddDeviceWizard
+          open={showMachineWizard}
+          branchId={selectedBranchId}
+          onClose={() => setShowMachineWizard(false)}
+          onDeviceOnline={() => {
+            void qc.invalidateQueries({ queryKey: ['access-devices'] });
+            setShowMachineWizard(false);
+          }}
+        />
+      )}
     </aside>
   );
 }
