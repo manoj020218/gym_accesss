@@ -147,45 +147,18 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
   const [subStep, setSubStep] = useState<ConfigSub>('device-id');
   const [devName, setDevName] = useState('Main Entry Scanner');
   const [creds, setCreds]     = useState<Creds | null>(null);
-  const [selectedIp, setSelectedIp] = useState('');
-  const [customIp, setCustomIp]     = useState('');
+  const [customIp, setCustomIp] = useState('');
 
   // Machine connect form state (waiting step)
-  const [machineIp, setMachineIp]   = useState('');
-  const [machinePwd, setMachinePwd] = useState('123456');
-  const [machineErr, setMachineErr] = useState('');
-  const [machineOk, setMachineOk]   = useState(false);
-  // Fast-connect (edge service) form state — secondary option
-  const [showFast, setShowFast]       = useState(false);
-  const [fcIp, setFcIp]               = useState('');
-  const [fcPort, setFcPort]           = useState('8090');
-  const [fcUser, setFcUser]           = useState('admin');
-  const [fcPass, setFcPass]           = useState('123456');
-  const [fcSn, setFcSn]               = useState('');
-  const [fcError, setFcError]         = useState('');
-  const [fcScanResult, setFcScanResult] = useState<{
-    type: 'wrong-port' | 'device-found' | 'not-found';
-    suggestPort?: number;
-    reachablePorts?: number[];
-    hint: string;
-  } | null>(null);
+  const [machineIp, setMachineIp]     = useState('');
+  const [machinePwd, setMachinePwd]   = useState('123456');
+  const [machineErr, setMachineErr]   = useState('');
+  const [machineOk, setMachineOk]     = useState(false);
+  const [configuring, setConfiguring] = useState(false);
 
-  // Detect server LAN IPs when user reaches that sub-step
-  const { data: netInfo } = useQuery({
-    queryKey: ['network-info'],
-    queryFn:  () => accessApi.networkInfo(),
-    enabled:  step === 'credentials' && subStep === 'server-ip',
-    staleTime: 60_000,
-  });
-
-  useEffect(() => {
-    if (netInfo?.addresses.length && !selectedIp && !customIp) {
-      setSelectedIp(netInfo.addresses[0]);
-    }
-  }, [netInfo, selectedIp, customIp]);
-
-  const activeIp  = customIp.trim() || selectedIp;
-  const serverUrl = activeIp ? `http://${activeIp}:${netInfo?.port ?? 8080}` : '';
+  // Server URL: use the admin panel's own origin (works for both cloud + LAN)
+  const defaultServerUrl = typeof window !== 'undefined' ? window.location.origin : '';
+  const serverUrl = customIp.trim() || defaultServerUrl;
 
   // Poll for heartbeat when waiting
   const { data: devices = [] } = useQuery({
@@ -231,67 +204,49 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
     onError: () => toast.error('Registration failed — try again or check server logs'),
   });
 
-  const fastConnectMut = useMutation({
-    mutationFn: () => {
-      if (!creds) throw new Error('No device registered');
-      setFcScanResult(null);
-      setFcError('');
-      return accessApi.fastConnect(creds.deviceCode, {
-        deviceIp: fcIp.trim(), devicePort: Number(fcPort) || 8090,
-        username: fcUser, password: fcPass, sn: fcSn.trim() || undefined,
+  // Directly configure machine from browser (browser must be on same LAN as machine)
+  const handleConfigureMachine = useCallback(async () => {
+    const ip = machineIp.trim();
+    if (!ip || !creds) return;
+    setMachineErr('');
+    setMachineOk(false);
+    setConfiguring(true);
+    const vpsHost = window.location.hostname;
+    const payload = {
+      set: 1,
+      password: machinePwd || '123456',
+      cloudserver_address: `http://${vpsHost}`,
+      third_ip: 0,
+      third_ip_ddr: '3000',
+      cloudserver_pollingtime: 10,
+      protocol_type: 1,
+    };
+    try {
+      const res = await fetch(`http://${ip}/serverSetting`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-    },
-    onSuccess: (data) => {
-      log('FAST_CONNECT_UI_SUCCESS', data.deviceId, { fcIp, fcPort: data.port ?? fcPort, fcUser });
-      void qc.invalidateQueries({ queryKey: ['access-devices', branchId] });
-      setStep('done');
-    },
-    onError: (err: unknown) => {
-      type ErrResp = { foundEdge?: boolean; suggestPort?: number; reachablePorts?: number[]; hint?: string; error?: string };
-      const data = (err as { response?: { data?: ErrResp } })?.response?.data ?? {};
-      const hint = data.hint ?? data.error ?? 'Could not reach the device. Check the IP and try again.';
-
-      if (data.suggestPort) {
-        // Edge service found but on a different port — one-click fix
-        setFcScanResult({ type: 'wrong-port', suggestPort: data.suggestPort, hint });
-      } else if (data.reachablePorts?.length) {
-        // Device is reachable (native web UI) but edge service not started
-        setFcScanResult({ type: 'device-found', reachablePorts: data.reachablePorts, hint });
+      if (res.ok) {
+        setMachineOk(true);
+        log('MACHINE_CONFIGURED', ip, { vpsHost });
       } else {
-        setFcScanResult({ type: 'not-found', hint });
-        setFcError(hint);
+        setMachineErr(`Machine returned HTTP ${res.status}. Check password and try again.`);
       }
-    },
-  });
-
-  const machinePingMut = useMutation({
-    mutationFn: () => {
-      if (!creds) throw new Error('No device registered');
-      setMachineErr('');
-      return accessApi.ping(creds.deviceCode, machineIp.trim(), 80, machinePwd || '123456');
-    },
-    onSuccess: () => {
-      log('MACHINE_PING_SUCCESS', machineIp.trim(), { port: 80 });
-      setMachineOk(true);
-      void qc.invalidateQueries({ queryKey: ['access-devices', branchId] });
-      setTimeout(() => setStep('done'), 800);
-    },
-    onError: (err: unknown) => {
-      const hint = (err as { response?: { data?: { hint?: string; error?: string } } })
-        ?.response?.data?.hint
-        ?? (err as { response?: { data?: { error?: string } } })?.response?.data?.error
-        ?? 'Could not reach the machine. Check the IP and make sure the device is on.';
-      setMachineErr(hint);
-    },
-  });
+    } catch {
+      // Mixed content or CORS: browser blocked the request — show manual fallback
+      setMachineErr('MANUAL_FALLBACK');
+    } finally {
+      setConfiguring(false);
+    }
+  }, [machineIp, machinePwd, creds, log]);
 
   const handleClose = () => {
     setStep('form'); setSubStep('device-id');
     setDevName('Main Entry Scanner');
-    setCreds(null); setSelectedIp(''); setCustomIp('');
+    setCreds(null); setCustomIp('');
     setMachineIp(''); setMachinePwd('123456'); setMachineErr(''); setMachineOk(false);
-    setShowFast(false); setFcIp(''); setFcPort('8090');
-    setFcUser('admin'); setFcPass('123456'); setFcSn(''); setFcError(''); setFcScanResult(null);
+    setConfiguring(false);
     onClose();
   };
 
@@ -364,92 +319,32 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
             </ConfirmCard>
           )}
 
-          {/* ── 2c: Server IP ── */}
+          {/* ── 2c: Server Address ── */}
           {subStep === 'server-ip' && (
-            <div className="space-y-5">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                    <rect x="2" y="2" width="20" height="8" rx="2"/>
-                    <rect x="2" y="14" width="20" height="8" rx="2"/>
-                    <line x1="6" y1="6" x2="6.01" y2="6"/>
-                    <line x1="6" y1="18" x2="6.01" y2="18"/>
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-100">Server Address</p>
-                  <p className="text-xs text-muted">Which address the machine will use to reach this server — step 3 of 3</p>
-                </div>
+            <ConfirmCard
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>}
+              title="Server Address"
+              subtitle="Where the edge service will connect to — step 3 of 3"
+              value={serverUrl}
+              onBack={() => setSubStep('branch-id')}
+              onConfirm={() => { log('CONFIRM_SERVER_IP', serverUrl); setSubStep('summary'); }}
+            >
+              <div className="flex items-start gap-2 p-3 bg-purple-900/20 border border-purple-500/20 rounded-xl">
+                <span className="text-purple-400 shrink-0 mt-0.5">ℹ</span>
+                <p className="text-xs text-purple-200/70">
+                  The edge service PC must be able to reach this URL. For local-only setups, override below.
+                </p>
               </div>
-
-              {!netInfo && (
-                <div className="flex items-center gap-2 text-xs text-muted animate-pulse py-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                  Detecting server addresses…
-                </div>
-              )}
-
-              {netInfo && (
-                <>
-                  {netInfo.addresses.length > 0 ? (
-                    <div className="space-y-2">
-                      <p className="text-[10px] font-semibold text-slate-400 tracking-wider">DETECTED ON THIS SERVER</p>
-                      {netInfo.addresses.map((ip) => {
-                        const isSelected = selectedIp === ip && !customIp.trim();
-                        return (
-                          <button
-                            key={ip}
-                            onClick={() => { setSelectedIp(ip); setCustomIp(''); }}
-                            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-all ${
-                              isSelected
-                                ? 'border-purple-500 bg-purple-600/10 text-purple-200'
-                                : 'border-white/10 bg-white/[0.02] text-slate-400 hover:border-white/20 hover:text-slate-300'
-                            }`}
-                          >
-                            <span className="font-mono text-sm">{ip}:{netInfo.port}</span>
-                            <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                              isSelected ? 'border-purple-500 bg-purple-500' : 'border-white/20'
-                            }`}>
-                              {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-amber-900/20 border border-amber-500/20 rounded-xl">
-                      <p className="text-xs text-amber-300">Could not auto-detect — enter the server's IP address below.</p>
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="text-[10px] font-semibold text-slate-400 tracking-wider mb-2">OR ENTER MANUALLY</p>
-                    <Input
-                      label=""
-                      value={customIp}
-                      onChange={(e) => { setCustomIp(e.target.value); setSelectedIp(''); }}
-                      placeholder="192.168.1.100"
-                    />
-                    {customIp.trim() && (
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono">→ http://{customIp.trim()}:{netInfo.port}</p>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <div className="flex items-center justify-between pt-1">
-                <button onClick={() => setSubStep('branch-id')} className="text-xs text-muted hover:text-slate-300 transition-colors">← Back</button>
-                <Button
-                  disabled={!serverUrl}
-                  onClick={() => {
-                    log('CONFIRM_SERVER_IP', serverUrl, { detectedAddresses: netInfo?.addresses });
-                    setSubStep('summary');
-                  }}
-                >
-                  Confirm →
-                </Button>
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 tracking-wider mb-2">OVERRIDE (local network only)</p>
+                <Input
+                  label=""
+                  value={customIp}
+                  onChange={(e) => setCustomIp(e.target.value)}
+                  placeholder="http://192.168.1.100:3000"
+                />
               </div>
-            </div>
+            </ConfirmCard>
           )}
 
           {/* ── 2d: Summary ── */}
@@ -503,21 +398,20 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
         </>
       )}
 
-      {/* ═══ Step 3 — Connect machine ════════════════════════════════════════ */}
-      {step === 'waiting' && (
+      {/* ═══ Step 3 — Configure machine ═════════════════════════════════════ */}
+      {step === 'waiting' && creds && (
         <div className="space-y-5">
           <div>
             <p className="text-sm font-bold text-slate-100 mb-1">Connect your machine</p>
-            <p className="text-xs text-muted">Enter the machine's IP and password — shown on its display or label.</p>
+            <p className="text-xs text-muted">Enter the machine's local IP and password to point it at this server automatically.</p>
           </div>
 
-          {/* Machine connect form */}
           <div className="space-y-3">
             <Input
               label="Machine IP Address"
               value={machineIp}
               onChange={(e) => { setMachineIp(e.target.value); setMachineErr(''); setMachineOk(false); }}
-              placeholder="192.168.1.201"
+              placeholder="192.168.1.92"
               autoFocus
             />
             <Input
@@ -528,41 +422,65 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
             />
           </div>
 
-          {/* Result feedback */}
-          {machinePingMut.isPending && (
-            <div className="flex items-center gap-2 p-3 bg-purple-900/20 border border-purple-500/20 rounded-xl">
-              <span className="w-3 h-3 rounded-full border-2 border-purple-400 border-t-transparent animate-spin shrink-0" />
-              <p className="text-xs text-purple-300">Reaching machine at {machineIp}…</p>
-            </div>
+          {!machineOk && (
+            <Button
+              className="w-full justify-center"
+              loading={configuring}
+              disabled={!machineIp.trim() || configuring}
+              onClick={() => void handleConfigureMachine()}
+            >
+              Configure Machine →
+            </Button>
           )}
+
           {machineOk && (
             <div className="flex items-center gap-2 p-3 bg-emerald-900/20 border border-emerald-500/20 rounded-xl">
               <span className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
                 <svg viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" className="w-2.5 h-2.5"><polyline points="10 3 5 9 2 6"/></svg>
               </span>
-              <p className="text-xs text-emerald-300 font-semibold">Machine connected!</p>
+              <p className="text-xs text-emerald-300 font-semibold">Machine configured — waiting for it to connect…</p>
             </div>
           )}
-          {machineErr && !machinePingMut.isPending && (
+
+          {machineErr && machineErr !== 'MANUAL_FALLBACK' && !configuring && (
             <div className="flex items-start gap-2 p-3 bg-red-900/20 border border-red-500/20 rounded-xl">
-              <span className="text-red-400 shrink-0">✕</span>
+              <span className="text-red-400 shrink-0 mt-0.5">✕</span>
               <p className="text-xs text-red-300">{machineErr}</p>
             </div>
           )}
 
-          <Button
-            className="w-full justify-center"
-            loading={machinePingMut.isPending}
-            disabled={!machineIp.trim() || machinePingMut.isPending || machineOk}
-            onClick={() => machinePingMut.mutate()}
-          >
-            Connect Machine →
-          </Button>
+          {/* Manual fallback — shown when browser blocks the request (HTTPS → HTTP) */}
+          {machineErr === 'MANUAL_FALLBACK' && (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 p-3 bg-amber-900/20 border border-amber-500/20 rounded-xl">
+                <span className="text-amber-400 shrink-0 mt-0.5">!</span>
+                <p className="text-xs text-amber-300">
+                  Browser blocked the request (HTTPS → HTTP). Open your machine's web interface and POST this JSON to <span className="font-mono">http://{machineIp}/serverSetting</span>
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const vpsHost = window.location.hostname;
+                  const payload = JSON.stringify({
+                    set: 1, password: machinePwd || '123456',
+                    cloudserver_address: `http://${vpsHost}`,
+                    third_ip: 0, third_ip_ddr: '3000',
+                    cloudserver_pollingtime: 10, protocol_type: 1,
+                  }, null, 2);
+                  void navigator.clipboard.writeText(payload).then(() => toast.success('Payload copied'));
+                }}
+                className="w-full text-xs font-mono bg-[#0d1117] border border-purple-500/20 rounded-xl p-3 text-purple-200/70 text-left hover:border-purple-500/40 transition-colors"
+              >
+                {`{ "set": 1, "cloudserver_address": "http://${window.location.hostname}", "third_ip_ddr": "3000", ... }`}
+                <span className="block mt-1 text-purple-400">Tap to copy full payload</span>
+              </button>
+            </div>
+          )}
 
-          {/* Auto-detect fallback */}
+          {/* Auto-detection */}
           <div className="flex items-center gap-2 text-xs text-muted pt-1">
             <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
-            Also listening for machine to self-register automatically…
+            Waiting for machine to register with server…
           </div>
 
           <div className="flex justify-between pt-1 border-t border-white/[0.06]">
