@@ -85,10 +85,17 @@ export async function buildApp() {
     fastify.log.error(err);
     const isZodError = err.name === 'ZodError';
     const status = isZodError ? 400 : (err.statusCode ?? 500);
+    let message = err.message;
+    if (isZodError) {
+      try {
+        const issues = JSON.parse(err.message) as Array<{ path: string[]; message: string }>;
+        message = issues.map((i) => `${i.path.length ? i.path.join('.') + ': ' : ''}${i.message}`).join('; ');
+      } catch { /* keep raw */ }
+    }
     return reply.status(status).send({
       statusCode: status,
       error:      isZodError ? 'Validation Error' : (err.name ?? 'Internal Server Error'),
-      message:    err.message,
+      message,
     });
   });
 

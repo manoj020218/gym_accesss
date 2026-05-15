@@ -45,11 +45,17 @@ function CreatePlanInline({ branchId, onCreated }: { branchId: string; onCreated
   const qc = useQueryClient();
 
   const mut = useMutation({
-    mutationFn: () => membershipApi.createPlan({ ...form, branchId, allowedZones: ['main_entry'] }),
+    mutationFn: () => {
+      if (!branchId) throw new Error('No branch selected — choose a branch from the header first.');
+      return membershipApi.createPlan({ ...form, branchId, allowedZones: ['main_entry'] });
+    },
     onSuccess: (plan) => {
       toast.success('Plan created');
       void qc.invalidateQueries({ queryKey: ['plans', branchId] });
       onCreated(plan);
+    },
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to create plan');
     },
   });
 
@@ -81,8 +87,11 @@ function CreatePlanInline({ branchId, onCreated }: { branchId: string; onCreated
         <Input label="Price (₹)" type="number" value={form.price} onChange={set('price')} />
         <Input label="GST %" type="number" value={form.gstPercent} onChange={set('gstPercent')} />
       </div>
+      {!branchId && (
+        <p className="text-xs text-amber-400/80">Select a specific branch from the sidebar to save a plan.</p>
+      )}
       <div className="flex justify-end">
-        <Button size="sm" type="button" loading={mut.isPending} onClick={() => mut.mutate()}>
+        <Button size="sm" type="button" loading={mut.isPending} disabled={!branchId} onClick={() => mut.mutate()}>
           Save Plan
         </Button>
       </div>
