@@ -20,6 +20,7 @@ interface AuthState {
   refreshToken: string | null;
   user: AuthUser | null;
   selectedBranchId: string | null;
+  _hydrated: boolean;
 
   setAuth: (token: string, refreshToken: string, user: AuthUser) => void;
   setToken: (token: string) => void;
@@ -34,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       user: null,
       selectedBranchId: null,
+      _hydrated: false,
 
       setAuth: (token, refreshToken, user) =>
         set({ token, refreshToken, user, selectedBranchId: user.branchIds[0] ?? null }),
@@ -52,6 +54,9 @@ export const useAuthStore = create<AuthState>()(
         user: s.user,
         selectedBranchId: s.selectedBranchId,
       }),
+      onRehydrateStorage: () => (_state, error) => {
+        if (!error) useAuthStore.setState({ _hydrated: true });
+      },
     },
   ),
 );

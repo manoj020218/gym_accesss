@@ -16,7 +16,9 @@ import Settings     from './pages/Settings';
 import Diagnostics  from './pages/Diagnostics';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const token = useAuthStore((s) => s.token);
+  const token    = useAuthStore((s) => s.token);
+  const hydrated = useAuthStore((s) => s._hydrated);
+  if (!hydrated) return null;
   return token ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
