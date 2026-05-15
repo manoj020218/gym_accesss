@@ -54,9 +54,15 @@ export const useAuthStore = create<AuthState>()(
         user: s.user,
         selectedBranchId: s.selectedBranchId,
       }),
-      onRehydrateStorage: () => (_state, error) => {
-        if (!error) useAuthStore.setState({ _hydrated: true });
-      },
     },
   ),
 );
+
+// Mark hydrated after persist finishes loading from localStorage
+useAuthStore.persist.onFinishHydration(() => {
+  useAuthStore.setState({ _hydrated: true });
+});
+// In case it already finished before any subscriber attached (synchronous storage)
+if (useAuthStore.persist.hasHydrated()) {
+  useAuthStore.setState({ _hydrated: true });
+}

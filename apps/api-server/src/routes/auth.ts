@@ -159,6 +159,21 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(401).send({ error: 'Unauthorized', message: 'Invalid refresh token' });
       }
 
+      // Seed users have sub like "seed-USERNAME" — not a MongoDB ObjectId
+      if (payload.sub.startsWith('seed-')) {
+        const username = payload.sub.slice(5);
+        type SeedEntry = { username: string; role: string; branchIds: string[]; displayName?: string };
+        let seeds: SeedEntry[] = [];
+        try { seeds = JSON.parse(config.SEED_LOGINS ?? '[]'); } catch { /* empty */ }
+        const seed = seeds.find((s) => s.username === username);
+        if (!seed) return reply.status(401).send({ error: 'Unauthorized', message: 'Seed user not configured' });
+        const accessToken = fastify.jwt.sign(
+          { sub: payload.sub, email: `${username.toLowerCase()}@seed.local`, role: seed.role, branchIds: seed.branchIds, permissions: [] },
+          { expiresIn: '24h' },
+        );
+        return reply.send({ accessToken });
+      }
+
       const user = await User.findById(payload.sub);
       if (!user || !user.isActive) {
         return reply.status(401).send({ error: 'Unauthorized', message: 'User not found or inactive' });
