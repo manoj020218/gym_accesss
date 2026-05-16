@@ -24,6 +24,7 @@ import paymentRoutes      from './routes/payments.js';
 import notificationRoutes from './routes/notifications.js';
 import memberPlanRoutes   from './routes/member-plans.js';
 import machinePushApiRoutes, { machinePushNativeRoutes } from './routes/machine-push.js';
+import machineAuthRoutes from './routes/machine-auth.js';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -82,6 +83,7 @@ export async function buildApp() {
   await fastify.register(adminRoutes,        { prefix: API });
   await fastify.register(machinePushApiRoutes,    { prefix: API }); // POST /api/v1/machine-push — via nginx /api/ on port 80
   await fastify.register(machinePushNativeRoutes);               // POST /cloudserver/... /RecordInfo — direct port 3000 from machine
+  await fastify.register(machineAuthRoutes);                     // POST /auth — MQTT auth for Face Recognition 3.0 protocol
 
   // ── Global error handler ─────────────────────────────────────────────────────
   fastify.setErrorHandler((err, _req, reply) => {
