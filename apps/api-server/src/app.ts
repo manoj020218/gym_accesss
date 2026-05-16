@@ -23,6 +23,7 @@ import accessRoutes       from './routes/access.js';
 import paymentRoutes      from './routes/payments.js';
 import notificationRoutes from './routes/notifications.js';
 import memberPlanRoutes   from './routes/member-plans.js';
+import machinePushRoutes  from './routes/machine-push.js';
 
 export async function buildApp() {
   const fastify = Fastify({
@@ -79,6 +80,7 @@ export async function buildApp() {
   await fastify.register(notificationRoutes, { prefix: `${API}/notifications` });
   await fastify.register(memberPlanRoutes,   { prefix: API });
   await fastify.register(adminRoutes,        { prefix: API });
+  await fastify.register(machinePushRoutes,  { prefix: API }); // POST /api/v1/machine-push — U5 native push (port 3000 via nginx)
 
   // ── Global error handler ─────────────────────────────────────────────────────
   fastify.setErrorHandler((err, _req, reply) => {

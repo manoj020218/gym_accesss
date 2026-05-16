@@ -4,6 +4,25 @@ server {
     return 301 https://$host$request_uri;
 }
 
+# ── Port 3000 — U5 machine Third-Party Record Push ────────────────────────────
+# Machines cannot use HTTPS, so they connect on plain HTTP port 3000.
+# All paths are rewritten to /api/v1/machine-push before hitting the API server.
+# Run: ufw allow 3000/tcp   (then: ufw reload)
+server {
+    listen 3000;
+    server_name _;
+
+    location / {
+        rewrite ^/.*$ /api/v1/machine-push break;
+        proxy_pass         http://localhost:8080;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Original-URI    $request_uri;
+        proxy_read_timeout 30s;
+    }
+}
+
 server {
     listen 443 ssl http2;
     server_name smartgym.iotsoft.in;
