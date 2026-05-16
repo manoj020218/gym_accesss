@@ -41,11 +41,11 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
     const result = await Payment.aggregate([
       { $match: matchStage },
       { $group: {
-        _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$paidAt' } }, branchId: '$branchId' },
-        totalAmount: { $sum: '$totalAmount' },
-        count:       { $sum: 1 },
+        _id:   { $dateToString: { format: '%Y-%m-%d', date: '$paidAt' } },
+        total: { $sum: '$totalAmount' },
+        count: { $sum: 1 },
       }},
-      { $sort: { '_id.date': -1 } },
+      { $sort: { '_id': -1 } },
     ]);
 
     return reply.send({ data: result });

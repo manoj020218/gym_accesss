@@ -18,7 +18,7 @@ export interface Product {
 }
 
 export const productApi = {
-  list: (params: { branchId?: string; lowStock?: boolean; broadcast?: boolean; page?: number; limit?: number }) =>
+  list: (params: { branchId?: string; lowStock?: boolean; broadcast?: boolean; isActive?: boolean; page?: number; limit?: number }) =>
     api.get<PaginatedResponse<Product>>('/products', { params }).then((r) => r.data),
 
   get: (id: string) => api.get<Product>(`/products/${id}`).then((r) => r.data),

@@ -161,22 +161,17 @@ export default function Reports() {
               />
             )}
 
-            {/* DAILY COLLECTION — backend returns _id: { date, branchId }, totalAmount, count */}
+            {/* DAILY COLLECTION */}
             {tab === 'collection' && (
               <ReportTable
                 headers={['Date', 'Revenue', 'Transactions']}
                 data={(collection ?? []) as Record<string, unknown>[]}
                 empty="No collection data"
-                row={(row) => {
-                  const id = row._id as Record<string, unknown> | null;
-                  const dateStr = id?.date ?? row.date ?? '—';
-                  const total = (row.totalAmount as number) ?? 0;
-                  return [
-                    <span key="d" className="text-slate-300">{fmtDate(String(dateStr))}</span>,
-                    <span key="r" className="text-emerald-400 font-semibold">{fmtCurrency(total)}</span>,
-                    <span key="c" className="text-slate-400">{String(row.count ?? 0)}</span>,
-                  ];
-                }}
+                row={(row) => [
+                  <span key="d" className="text-slate-300">{fmtDate(String(row._id ?? '—'))}</span>,
+                  <span key="r" className="text-emerald-400 font-semibold">{fmtCurrency((row.total as number) ?? 0)}</span>,
+                  <span key="c" className="text-slate-400">{String(row.count ?? 0)}</span>,
+                ]}
               />
             )}
 
