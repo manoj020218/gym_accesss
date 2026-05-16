@@ -156,6 +156,10 @@ export const accessApi = {
     api.patch<{ ok: boolean }>(`/access-devices/${deviceCode}`, updates)
       .then(r => r.data),
 
+  linkEventToMember: (eventId: string, memberId: string) =>
+    api.post<{ ok: boolean }>(`/access/events/${eventId}/link-to-member`, { memberId })
+      .then((r) => r.data),
+
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;
     step: string; confirmedValue?: string; metadata?: Record<string, unknown>;

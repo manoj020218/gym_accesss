@@ -8,6 +8,7 @@ import { DeviceSetupLog } from '../models/DeviceSetupLog.js';
 import { AccessDecision, Zone, SubjectType, StaffRole } from '@edge-gym/shared-types';
 import { Member } from '../models/Member.js';
 import { Staff }  from '../models/Staff.js';
+import { ZkbioEmployee } from '../models/ZkbioEmployee.js';
 
 const ListQuery = z.object({
   branchId:    z.string().optional(),
@@ -59,6 +60,58 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({ data, total, page: q.page, limit: q.limit, pages: Math.ceil(total / q.limit) });
   });
+
+  // POST /access/events/:eventId/link-to-member — link an unidentified visitor event to a member.
+  // Works for both ZKBio (upserts ZkbioEmployee) and U5 (adds to member.machineUsers).
+  // After linking, the event itself is updated so future attendance reports show the member.
+  fastify.post<{ Params: { eventId: string }; Body: { memberId: string } }>(
+    '/access/events/:eventId/link-to-member',
+    { schema: { body: {} } },
+    async (req, reply) => {
+      const { eventId } = req.params;
+      const { memberId } = req.body ?? {} as { memberId: string };
+      if (!memberId) return reply.status(400).send({ error: 'memberId required' });
+
+      const [event, member] = await Promise.all([
+        AccessEvent.findById(eventId),
+        Member.findById(memberId),
+      ]);
+      if (!event)  return reply.status(404).send({ error: 'Event not found' });
+      if (!member) return reply.status(404).send({ error: 'Member not found' });
+
+      const machineUserId = event.subjectId; // may be raw machine integer ID
+      const device = await AccessDevice.findById(event.edgeDeviceId);
+
+      if (device) {
+        const isZkbio = !!device.machineSn && device.make !== 'u5';
+        const isU5    = device.make === 'u5' || (!device.make && !!device.ipAddress);
+
+        if (isZkbio && device.machineSn) {
+          // Upsert ZkbioEmployee and set memberId so future events match
+          await ZkbioEmployee.updateOne(
+            { deviceSn: device.machineSn, machineUserId },
+            {
+              $set: { memberId, name: `${member.firstName} ${member.lastName}`.slice(0, 24) },
+              $setOnInsert: { deviceSn: device.machineSn, machineUserId, importedAt: new Date() },
+            },
+            { upsert: true },
+          );
+          await Member.findByIdAndUpdate(memberId, { $set: { faceEnrolled: true } });
+        } else if (isU5) {
+          await Member.findByIdAndUpdate(memberId, {
+            $addToSet: { machineUsers: { deviceCode: device.deviceCode, machineUserId } },
+          });
+        }
+      }
+
+      // Re-attribute the event itself
+      await AccessEvent.findByIdAndUpdate(eventId, {
+        $set: { subjectId: memberId, subjectType: 'member', subjectName: `${member.firstName} ${member.lastName}` },
+      });
+
+      return reply.send({ ok: true });
+    },
+  );
 
   // GET /access/attendance/:memberId — aggregate check-in/out sessions from main_entry events
   fastify.get<{ Params: { memberId: string }; Querystring: z.infer<typeof AttendanceQuery> }>(

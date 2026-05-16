@@ -8,6 +8,7 @@ import { Select } from '../components/ui/Input';
 import { PageSpinner } from '../components/ui/Spinner';
 import { EmptyState } from '../components/ui/EmptyState';
 import { accessApi } from '../api/access';
+import { memberApi, type Member } from '../api/members';
 import { useAuthStore } from '../store/auth';
 import { fmtDatetime } from '../utils/format';
 import { toast } from '../store/toast';
@@ -32,7 +33,174 @@ const DECISION_OPTIONS = [
   { value: 'DENY',  label: 'Denied' },
 ];
 
-type Segment = 'members' | 'staff' | 'strangers';
+type Segment = 'members' | 'staff' | 'visitors' | 'strangers';
+
+// ── Inline member search (reused from FaceMachines pattern) ──────────────
+function MemberSearchInline({
+  branchId,
+  onSelect,
+  onCancel,
+}: {
+  branchId?: string;
+  onSelect: (m: Member) => void;
+  onCancel: () => void;
+}) {
+  const [q, setQ] = React.useState('');
+  const { data, isFetching } = useQuery({
+    queryKey: ['member-search', q, branchId],
+    queryFn:  () => memberApi.list({ search: q, branchId, limit: 6 }),
+    enabled:  q.length >= 2,
+  });
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-1">
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search member…"
+          autoFocus
+          className="w-full text-xs bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-1.5 text-slate-200 outline-none focus:border-purple-500/50"
+        />
+        <button onClick={onCancel} className="text-slate-500 hover:text-slate-300 text-[11px] px-1">✕</button>
+      </div>
+      {q.length >= 2 && (
+        <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[#0e0e1c] border border-white/[0.1] rounded-xl shadow-xl max-h-40 overflow-y-auto">
+          {isFetching ? (
+            <p className="text-xs text-muted px-3 py-2">Searching…</p>
+          ) : (data?.data ?? []).length === 0 ? (
+            <p className="text-xs text-muted px-3 py-2">No members found</p>
+          ) : (data?.data ?? []).map(m => (
+            <button key={m._id} onClick={() => onSelect(m)} className="w-full text-left px-3 py-2 hover:bg-purple-500/10 border-b border-white/[0.04] last:border-0">
+              <p className="text-xs font-semibold text-slate-200">{m.firstName} {m.lastName}</p>
+              <p className="text-[11px] text-muted">{m.memberCode} · {m.status}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Unlinked visitor event row ──────────────────────────────────────────────
+function VisitorEventRow({
+  ev,
+  branchId,
+  onLinked,
+}: {
+  ev: { _id: string; decision: string; subjectId: string; subjectName?: string; zone: string; identifierUsed: string; edgeDeviceId: string; eventTime: string };
+  branchId?: string;
+  onLinked: () => void;
+}) {
+  const [linking, setLinking] = React.useState(false);
+
+  const linkMut = useMutation({
+    mutationFn: (memberId: string) => accessApi.linkEventToMember(ev._id, memberId),
+    onSuccess: () => {
+      toast.success('Linked — future visits will show the member\'s name');
+      setLinking(false);
+      onLinked();
+    },
+    onError: () => toast.error('Link failed — try again'),
+  });
+
+  return (
+    <tr className="border-b border-white/[0.04] hover:bg-amber-500/[0.02] last:border-0">
+      <td className="px-5 py-3">
+        <Badge variant={ev.decision === 'ALLOW' ? 'allow' : 'deny'}>{ev.decision}</Badge>
+      </td>
+      <td className="px-5 py-3">
+        <p className="text-sm text-amber-300/80 font-mono">{ev.subjectName ?? ev.subjectId}</p>
+        <p className="text-[11px] text-muted">Unlinked · {ev.identifierUsed}</p>
+      </td>
+      <td className="px-5 py-3 text-xs text-slate-400">{ev.zone.replace(/_/g, ' ')}</td>
+      <td className="px-5 py-3 text-xs text-muted">{fmtDatetime(ev.eventTime)}</td>
+      <td className="px-5 py-3" style={{ minWidth: 200 }}>
+        {linking ? (
+          <MemberSearchInline
+            branchId={branchId}
+            onSelect={m => linkMut.mutate(m._id)}
+            onCancel={() => setLinking(false)}
+          />
+        ) : (
+          <button
+            onClick={() => setLinking(true)}
+            className="text-[11px] text-purple-400 hover:text-purple-300 font-semibold"
+          >
+            + Link to Member
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+// ── Unlinked visitors panel ─────────────────────────────────────────────────
+function UnlinkedVisitorsPanel({
+  events, total, pages, page, setPage, isLoading, branchId, onRefetch,
+}: {
+  events: ReturnType<typeof accessApi.events> extends Promise<infer T> ? T extends { data: Array<infer E> } ? E[] : never : never;
+  total: number; pages: number; page: number;
+  setPage: (fn: (p: number) => number) => void;
+  isLoading: boolean;
+  branchId?: string;
+  onRefetch: () => void;
+}) {
+  const qc = useQueryClient();
+  return (
+    <>
+      <div className="flex items-center gap-3 mb-4">
+        <p className="text-xs text-muted">
+          These are access events where the machine user ID could not be matched to a member.
+          Click <strong className="text-slate-300">+ Link to Member</strong> to identify them.
+        </p>
+        <div className="ml-auto flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={onRefetch}>Refresh</Button>
+          <span className="text-xs text-muted">{total.toLocaleString()} events</span>
+        </div>
+      </div>
+      <Card>
+        {isLoading ? (
+          <PageSpinner />
+        ) : events.length === 0 ? (
+          <EmptyState
+            title="No unlinked events"
+            description="All machine access events are linked to a member or staff."
+          />
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-white/[0.06]">
+                {['Decision', 'Machine User ID', 'Zone', 'Time', 'Action'].map(h => (
+                  <th key={h} className="text-left text-[11px] font-semibold text-dimmed tracking-widest uppercase px-5 py-3.5">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {events.map(ev => (
+                <VisitorEventRow
+                  key={ev._id}
+                  ev={ev}
+                  branchId={branchId}
+                  onLinked={() => {
+                    onRefetch();
+                    void qc.invalidateQueries({ queryKey: ['access-events'] });
+                  }}
+                />
+              ))}
+            </tbody>
+          </table>
+        )}
+        {pages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3.5 border-t border-white/[0.06]">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40">← Prev</button>
+            <span className="text-xs text-muted">Page {page} of {pages}</span>
+            <button disabled={page === pages} onClick={() => setPage(p => p + 1)} className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-40">Next →</button>
+          </div>
+        )}
+      </Card>
+    </>
+  );
+}
 
 export default function AccessMonitor() {
   const qc = useQueryClient();
@@ -47,7 +215,7 @@ export default function AccessMonitor() {
   const wsRef = useRef<WebSocket | null>(null);
 
   // Access events — filtered by segment; WS triggers refetch
-  const subjectTypeFilter = segment === 'staff' ? 'staff' : segment === 'members' ? 'member' : undefined;
+  const subjectTypeFilter = segment === 'staff' ? 'staff' : segment === 'members' ? 'member' : segment === 'visitors' ? 'visitor' : undefined;
   const { data, isLoading, refetch: refetchEvents } = useQuery({
     queryKey: ['access-events', branchId, zone, decision, subjectTypeFilter, page],
     queryFn:  () =>
@@ -198,8 +366,9 @@ export default function AccessMonitor() {
       {/* Segment toggle */}
       <div className="flex items-center gap-1 mb-5 p-1 bg-white/[0.04] border border-white/[0.07] rounded-xl w-fit">
         {([
-          { id: 'members',   label: 'Members' },
-          { id: 'staff',     label: 'Staff' },
+          { id: 'members',  label: 'Members' },
+          { id: 'staff',    label: 'Staff' },
+          { id: 'visitors', label: 'Unlinked' },
           { id: 'strangers', label: 'Strangers' },
         ] as { id: Segment; label: string }[]).map((seg) => (
           <button
@@ -472,6 +641,20 @@ export default function AccessMonitor() {
             )}
           </Card>
         </>
+      )}
+
+      {/* ── VISITORS (UNLINKED) SEGMENT ── */}
+      {segment === 'visitors' && (
+        <UnlinkedVisitorsPanel
+          events={data?.data ?? []}
+          total={data?.total ?? 0}
+          pages={Math.ceil((data?.total ?? 0) / 30)}
+          page={page}
+          setPage={setPage}
+          isLoading={isLoading}
+          branchId={branchId}
+          onRefetch={() => void refetchEvents()}
+        />
       )}
 
       {/* ── STRANGERS SEGMENT ── */}
