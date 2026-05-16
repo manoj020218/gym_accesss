@@ -146,8 +146,11 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
     const results = await Promise.all(devices.map(async (d) => {
       let isOnline = !!(d.lastHeartbeatAt && d.lastHeartbeatAt > fiveMinAgo);
 
-      // Before declaring offline: ping the machine directly if it has a stored IP
-      if (!isOnline && d.ipAddress) {
+      // For ZKBio/cloud machines the IP is a public ISP address — don't try to ping it
+      // from the VPS (unreachable). Heartbeat from the ZKBio polling cycle is the only signal.
+      const isCloudMachine = d.make === 'zkteco';
+
+      if (!isOnline && d.ipAddress && !isCloudMachine) {
         try {
           const r = await fetch(`http://${d.ipAddress}:${d.port ?? 80}/`, {
             signal: AbortSignal.timeout(2000),
@@ -166,11 +169,13 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         branchId:         d.branchId,
         zone:             d.zone,
         type:             d.type,
+        make:             d.make,
         isOnline,
         lastHeartbeat:    d.lastHeartbeatAt?.toISOString(),
         ipAddress:        d.ipAddress,
         port:             d.port,
         machineSn:        d.machineSn,
+        localIp:          d.localIp,
         mqttLiveEnabled:  d.mqttLiveEnabled,
         mqttBrokerUrl:    d.mqttBrokerUrl,
         mqttInfoTopic:    d.mqttInfoTopic,
@@ -263,10 +268,12 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       const machinePasswd  = device.machinePassword ?? '123456';
 
       type RawEmployee = {
-        userid?:    string | number; // machine's internal auto-increment key (u5UserId)
-        userId?:    string | number; // some firmware versions use uppercase i
-        name:       string;
-        id_number?: string;          // = our memberCode
+        userid?:              string | number; // machine's internal auto-increment key (u5UserId)
+        userId?:              string | number; // some firmware versions use uppercase i
+        name:                 string;
+        id_number?:           string;  // = our memberCode
+        access_card_number?:  string;  // RFID / NFC card number (may be "0" for none)
+        pic_large?:           string;  // base64 photo — present for card-only users too
       };
 
       try {
@@ -282,16 +289,53 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
         const raw  = await res.text();
         req.log.info({ endpoint: '/getEmployeeList', machineSn: device.machineSn, machineUrl, raw }, '[u5] getEmployeeList response');
         const data = JSON.parse(raw) as { data?: RawEmployee[] };
-        const employees = (data.data ?? []).map(e => ({
-          u5UserId: String(e.userid ?? e.userId ?? ''),
-          name:     e.name,
-          ...(e.id_number != null ? { id_number: e.id_number } : {}),
-        }));
+        const employees = (data.data ?? []).map(e => {
+          const cardNo = e.access_card_number && e.access_card_number !== '0' ? e.access_card_number : undefined;
+          const hasFace = !!(e.pic_large && e.pic_large.length > 10);
+          return {
+            u5UserId:  String(e.userid ?? e.userId ?? ''),
+            name:      e.name,
+            id_number: e.id_number ?? undefined,
+            accessCardNumber: cardNo,
+            hasFace,
+          };
+        });
         return reply.send({ employees });
       } catch (err) {
         const isTimeout = err instanceof Error && err.name === 'TimeoutError';
         return reply.status(503).send({ error: isTimeout ? 'Machine timed out' : 'Cannot reach machine' });
       }
+    },
+  );
+
+  // POST /access-devices/:deviceId/u5-employees/:userId/link — link a U5 machine employee to a Member
+  // Sets rfidCardId if the employee has a card; marks faceEnrolled if the employee has a face photo.
+  fastify.post<{ Params: { deviceId: string; userId: string }; Body: { memberId: string | null; accessCardNumber?: string; hasFace?: boolean } }>(
+    '/access-devices/:deviceId/u5-employees/:userId/link',
+    { schema: { body: {} } },
+    async (req, reply) => {
+      const { deviceId, userId } = req.params;
+      const { memberId, accessCardNumber, hasFace } = req.body ?? {} as { memberId: string | null; accessCardNumber?: string; hasFace?: boolean };
+
+      if (memberId) {
+        const updates: Record<string, unknown> = {};
+        if (accessCardNumber) updates.rfidCardId  = accessCardNumber;
+        if (hasFace)          updates.faceEnrolled = true;
+
+        await Member.findByIdAndUpdate(memberId, {
+          $set:     updates,
+          $addToSet: { machineUsers: { deviceCode: deviceId, machineUserId: userId } },
+        });
+      } else {
+        // Unlink: remove this machine user entry from whichever member has it
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (Member as any).updateOne(
+          { 'machineUsers.deviceCode': deviceId, 'machineUsers.machineUserId': userId },
+          { $pull: { machineUsers: { deviceCode: deviceId, machineUserId: userId } } },
+        );
+      }
+
+      return reply.send({ ok: true });
     },
   );
 
@@ -526,6 +570,10 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
       if (!device?.ipAddress) {
         return reply.status(404).send({ error: 'Device not found or no IP configured' });
       }
+      // sync-status uses the machine's local HTTP API — only valid for U5/LAN devices
+      if (device.make === 'zkteco') {
+        return reply.status(404).send({ error: 'sync-status not applicable for ZKBio cloud devices' });
+      }
 
       // Machine connection — IP/port/password from AccessDevice doc; NOT MongoDB _id
       const machineUrl = `http://${device.ipAddress}:${device.port ?? 80}`;
@@ -669,6 +717,24 @@ const accessRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({ ok: true, mqttInfoTopic, machineSn });
   });
+
+  // PATCH /access-devices/:deviceCode — update mutable fields (localIp, name)
+  fastify.patch<{ Params: { deviceCode: string }; Body: { localIp?: string; name?: string } }>(
+    '/access-devices/:deviceCode',
+    async (req, reply) => {
+      const updates: Record<string, unknown> = {};
+      if (req.body.localIp  !== undefined) updates.localIp = req.body.localIp;
+      if (req.body.name     !== undefined) updates.name    = req.body.name;
+      if (!Object.keys(updates).length) return reply.status(400).send({ error: 'nothing to update' });
+      const device = await AccessDevice.findOneAndUpdate(
+        { deviceCode: req.params.deviceCode, isActive: true },
+        updates,
+        { new: true },
+      );
+      if (!device) return reply.status(404).send({ error: 'Device not found' });
+      return reply.send({ ok: true });
+    },
+  );
 
   // POST /access-devices/:deviceCode/fast-connect
   // Tries specified port first, then auto-scans common ports if that fails.

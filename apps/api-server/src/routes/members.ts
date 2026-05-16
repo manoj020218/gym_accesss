@@ -7,6 +7,7 @@ import { MemberStatus, Zone } from '@edge-gym/shared-types';
 import { AuditLog } from '../models/AuditLog.js';
 import { AccessDevice } from '../models/AccessDevice.js';
 import { nextSeq } from '../models/Counter.js';
+import { ZkbioEmployee } from '../models/ZkbioEmployee.js';
 
 const emptyToUndefined = z.preprocess((v) => (v === '' ? undefined : v), z.string().optional());
 
@@ -152,6 +153,12 @@ const memberRoutes: FastifyPluginAsync = async (fastify) => {
         { new: true },
       );
       if (!member) return reply.status(404).send({ error: 'Not Found' });
+
+      // Remove from ZKBio face machines — machine will delete template via selectDeleteInfo
+      await ZkbioEmployee.updateMany(
+        { memberId: req.params.id, deletedAt: { $exists: false } },
+        { $set: { deletedAt: new Date() } },
+      );
 
       await AuditLog.create({
         actorId: req.actor.sub, actorEmail: req.actor.email, actorRole: req.actor.role,

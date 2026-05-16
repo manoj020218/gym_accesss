@@ -37,6 +37,7 @@ export interface IAccessDevice extends Document {
   // Device make/type — used to determine live access method
   make?: 'u5' | 'zkteco' | 'hikvision' | 'ebkn' | 'matrix' | 'other';
   liveAccessMethod?: 'mqtt' | 'websocket' | 'none';
+  localIp?: string;   // LAN IP (not public) — used for import instructions only, not reachable from VPS
 }
 
 const accessDeviceSchema = new Schema<IAccessDevice>(
@@ -63,6 +64,7 @@ const accessDeviceSchema = new Schema<IAccessDevice>(
     mqttConnected:   Boolean,
     make:            { type: String },
     liveAccessMethod: { type: String },
+    localIp:          String,
     relayEnabled:  { type: Boolean, default: true },
     antiPassback:  { type: String, default: 'disabled' },
     secretKeyHash: { type: String, required: true, select: false },

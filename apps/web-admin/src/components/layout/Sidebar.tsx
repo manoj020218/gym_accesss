@@ -83,6 +83,16 @@ const navOps = [
 
 const navSystem = [
   {
+    to: '/machines',
+    label: 'Face Machines',
+    icon: (
+      <svg fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16" viewBox="0 0 24 24">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><circle cx="12" cy="10" r="3"/>
+        <path d="M8 10a4 4 0 008 0"/><path d="M5 21h14"/>
+      </svg>
+    ),
+  },
+  {
     to: '/settings',
     label: 'Settings',
     icon: (
@@ -125,6 +135,7 @@ function NavItem({ to, label, icon, live }: { to: string; label: string; icon: R
 }
 
 import React, { useState } from 'react';
+import { accessApi } from '../../api/access';
 
 export function Sidebar() {
   const { user, selectedBranchId, setSelectedBranch } = useAuthStore();
@@ -136,6 +147,14 @@ export function Sidebar() {
     queryKey: ['branches'],
     queryFn:  () => branchApi.list(),
     enabled:  !!user,
+  });
+
+  const { data: branchDevices = [] } = useQuery({
+    queryKey: ['access-devices', selectedBranchId],
+    queryFn:  () => accessApi.devices(selectedBranchId ?? undefined),
+    enabled:  !!selectedBranchId,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
   });
 
   const selectedBranch = branches.find((b) => b._id === selectedBranchId) ?? branches[0];
@@ -191,18 +210,50 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* Machine Installation button — one per branch */}
+        {/* Machines section */}
         {selectedBranchId && (
-          <button
-            onClick={() => setShowMachineWizard(true)}
-            className="mt-2.5 w-full flex items-center gap-2 px-3 py-2 rounded-[9px] border border-dashed border-purple-500/30 text-[11px] font-semibold text-purple-400 hover:border-purple-500/60 hover:bg-purple-500/10 transition-all"
-          >
-            <svg fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13" viewBox="0 0 24 24">
-              <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
-              <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
-            </svg>
-            Machine Installation
-          </button>
+          <div className="mt-2.5">
+            {branchDevices.length > 0 ? (
+              <div className="rounded-[9px] border border-white/[0.07] overflow-hidden">
+                <div className="px-2.5 pt-1.5 pb-1">
+                  <p className="text-[9px] font-bold tracking-widest text-dimmed uppercase">Machines</p>
+                </div>
+                {branchDevices.map(d => (
+                  <NavLink
+                    key={d._id}
+                    to="/machines"
+                    className="flex items-center gap-2 px-2.5 py-1.5 border-t border-white/[0.05] hover:bg-white/[0.04] transition-colors"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${d.isOnline ? 'bg-emerald-400 blink' : 'bg-slate-600'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-semibold text-slate-300 truncate">{d.name}</p>
+                      <p className="text-[10px] text-dimmed">{d.isOnline ? 'Live' : 'Offline'}</p>
+                    </div>
+                  </NavLink>
+                ))}
+                <button
+                  onClick={() => setShowMachineWizard(true)}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 border-t border-white/[0.05] text-[10px] font-semibold text-purple-400 hover:bg-purple-500/10 transition-all"
+                >
+                  <svg fill="none" stroke="currentColor" strokeWidth="2.5" width="10" height="10" viewBox="0 0 24 24">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  Add Machine
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowMachineWizard(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-[9px] border border-dashed border-purple-500/30 text-[11px] font-semibold text-purple-400 hover:border-purple-500/60 hover:bg-purple-500/10 transition-all"
+              >
+                <svg fill="none" stroke="currentColor" strokeWidth="2" width="13" height="13" viewBox="0 0 24 24">
+                  <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+                  <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+                </svg>
+                Machine Installation
+              </button>
+            )}
+          </div>
         )}
       </div>
 

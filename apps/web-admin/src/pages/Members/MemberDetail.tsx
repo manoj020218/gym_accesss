@@ -12,6 +12,7 @@ import { memberApi } from '../../api/members';
 import { membershipApi } from '../../api/memberships';
 import { paymentApi } from '../../api/payments';
 import { accessApi } from '../../api/access';
+import { zkbioApi } from '../../api/zkbio';
 import { toast } from '../../store/toast';
 import { fmtDate, fmtDatetime, fmtCurrency, initials, avatarColor } from '../../utils/format';
 import MemberForm from './MemberForm';
@@ -35,6 +36,10 @@ export default function MemberDetail() {
   const [uploadImage, setUploadImage]     = useState<{ base64: string; previewUrl: string } | null>(null);
   const [enrollErrorMsg, setEnrollErrorMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // ZKBio enrollment
+  const [showZkbioEnroll, setShowZkbioEnroll] = useState<string | null>(null); // deviceSn to enroll on
+  const [zkbioUploadImage, setZkbioUploadImage] = useState<{ base64: string; previewUrl: string } | null>(null);
+  const zkbioFileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: member, isLoading } = useQuery({
     queryKey: ['member', id],
@@ -64,12 +69,23 @@ export default function MemberDetail() {
   const { data: devices = [], isLoading: devicesLoading, refetch: refetchDevices } = useQuery({
     queryKey: ['access-devices', member?.branchId],
     queryFn:  () => accessApi.devices(member?.branchId),
-    enabled:  (showEnroll || tab === 'access') && !!member?.branchId,
+    enabled:  !!member?.branchId,
     // Live-ping happens server-side; poll every 30s on access tab, 8s while enrolling
     refetchInterval: showEnroll ? 8000 : (tab === 'access' ? 30_000 : false),
   });
   const deviceOnline  = devices.some((d) => d.isOnline);
   const offlineDevice = devices.find((d) => !d.isOnline);
+  // Face upload (U5 enrollment) only works with U5 LAN machines — hide for ZKBio-only branches.
+  const hasU5Device    = devices.some((d) => d.make === 'u5' || (!d.make && !!d.ipAddress));
+  // ZKBio machines communicate via cloud polling; they have machineSn and aren't U5.
+  const zkbioDevices   = devices.filter((d) => d.machineSn && d.make !== 'u5');
+  const hasZkbioDevice = zkbioDevices.length > 0;
+
+  const { data: zkbioEnrollments = [], refetch: refetchZkbioEnrollments } = useQuery({
+    queryKey: ['zkbio-enrollments', id],
+    queryFn:  () => zkbioApi.getMemberEnrollments(id!),
+    enabled:  !!id && hasZkbioDevice,
+  });
 
   const firstDevice = devices[0];
   const { data: u5Sync } = useQuery({
@@ -189,6 +205,46 @@ export default function MemberDetail() {
     setEnrollErrorMsg('');
   };
 
+  const zkbioEnrollMut = useMutation({
+    mutationFn: () => zkbioApi.enroll(showZkbioEnroll!, id!, zkbioUploadImage!.base64),
+    onSuccess: () => {
+      toast.success('Enrolled — machine syncs within ~30 seconds');
+      setShowZkbioEnroll(null);
+      setZkbioUploadImage(null);
+      void qc.invalidateQueries({ queryKey: ['member', id] });
+      void refetchZkbioEnrollments();
+    },
+    onError: () => toast.error('Enrollment failed — please try again'),
+  });
+
+  const zkbioRemoveMut = useMutation({
+    mutationFn: ({ deviceSn, machineUserId }: { deviceSn: string; machineUserId: string }) =>
+      zkbioApi.removeEnrollment(deviceSn, machineUserId),
+    onSuccess: () => {
+      toast.success('Removed — machine deletes template within ~30 seconds');
+      void refetchZkbioEnrollments();
+      void qc.invalidateQueries({ queryKey: ['member', id] });
+    },
+  });
+
+  const handleZkbioFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 640;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      setZkbioUploadImage({ base64: dataUrl.split(',')[1] ?? '', previewUrl });
+    };
+    img.src = previewUrl;
+  };
+
   if (isLoading) return <Layout title="Member"><PageSpinner /></Layout>;
   if (!member)  return <Layout title="Member"><p className="text-muted text-sm p-6">Member not found.</p></Layout>;
 
@@ -278,6 +334,39 @@ export default function MemberDetail() {
               Regenerate QR
             </Button>
           </div>
+
+          {/* ── ZKBio Face Machine Enrollment ── */}
+          {hasZkbioDevice && (
+            <div className="mt-4 pt-4 border-t border-white/[0.06]">
+              <p className="text-[11px] text-muted uppercase tracking-wide mb-2.5">Face Machines</p>
+              <div className="space-y-2">
+                {zkbioDevices.map(d => {
+                  const enrolled = zkbioEnrollments.find(e => e.deviceSn === d.machineSn);
+                  return (
+                    <div key={d.deviceId} className="flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 truncate max-w-[110px]" title={d.name}>{d.name}</span>
+                      {enrolled ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-emerald-400 font-mono">ID {enrolled.machineUserId}</span>
+                          <button
+                            onClick={() => zkbioRemoveMut.mutate({ deviceSn: enrolled.deviceSn, machineUserId: enrolled.machineUserId })}
+                            disabled={zkbioRemoveMut.isPending}
+                            title="Remove from machine"
+                            className="text-[10px] text-red-400/50 hover:text-red-400 transition-colors leading-none"
+                          >✕</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setShowZkbioEnroll(d.machineSn ?? null); setZkbioUploadImage(null); }}
+                          className="text-[11px] text-purple-400 hover:text-purple-300 font-medium transition-colors"
+                        >+ Enroll</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* Tabs */}
@@ -332,7 +421,7 @@ export default function MemberDetail() {
                       {syncMut.isPending ? 'Syncing…' : 'Sync'}
                     </button>
                   )}
-                  <button
+                  {hasU5Device && <button
                     onClick={() => { setShowEnroll(true); setEnrollStep('idle'); }}
                     title="Enroll Face on Device"
                     className="w-9 h-9 rounded-full bg-purple-600 hover:bg-purple-500 flex items-center justify-center text-white shadow-lg transition-colors"
@@ -341,7 +430,7 @@ export default function MemberDetail() {
                       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
                       <circle cx="12" cy="13" r="4"/>
                     </svg>
-                  </button>
+                  </button>}
                 </div>
               </div>
             )}
@@ -688,6 +777,62 @@ export default function MemberDetail() {
           )}
         </div>
       </Modal>
+      {/* ── ZKBio photo upload modal ── */}
+      <Modal
+        open={!!showZkbioEnroll}
+        onClose={() => { setShowZkbioEnroll(null); setZkbioUploadImage(null); }}
+        title="Enroll on Face Machine"
+      >
+        <div className="space-y-4 py-1">
+          <p className="text-xs text-muted leading-relaxed">
+            Upload a clear front-facing photo. The machine will automatically sync it within ~30 seconds.
+          </p>
+          <input
+            ref={zkbioFileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleZkbioFileSelect}
+          />
+          {zkbioUploadImage ? (
+            <div className="flex flex-col items-center gap-3">
+              <img
+                src={zkbioUploadImage.previewUrl}
+                alt="Face preview"
+                className="w-28 h-28 rounded-2xl object-cover border-2 border-purple-500/40"
+              />
+              <button
+                onClick={() => { setZkbioUploadImage(null); if (zkbioFileInputRef.current) zkbioFileInputRef.current.value = ''; zkbioFileInputRef.current?.click(); }}
+                className="text-[11px] text-muted hover:text-slate-300 transition-colors"
+              >
+                Change photo
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => zkbioFileInputRef.current?.click()}
+              className="w-full flex flex-col items-center gap-2 py-8 rounded-xl border-2 border-dashed border-white/10 hover:border-purple-500/40 hover:bg-purple-500/5 transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-8 h-8 text-muted">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              <p className="text-xs text-muted">Click to select a face photo</p>
+            </button>
+          )}
+          <div className="flex gap-3 justify-end pt-1">
+            <Button variant="outline" onClick={() => { setShowZkbioEnroll(null); setZkbioUploadImage(null); }}>Cancel</Button>
+            <Button
+              disabled={!zkbioUploadImage}
+              loading={zkbioEnrollMut.isPending}
+              onClick={() => zkbioEnrollMut.mutate()}
+            >
+              Enroll on Machine
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <AddDeviceWizard
         open={showAddDevice}
         branchId={member.branchId}

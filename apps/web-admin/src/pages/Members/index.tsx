@@ -55,7 +55,8 @@ export default function MembersList() {
     enabled:  !!selectedBranchId,
     staleTime: 60_000,
   });
-  const firstDevice = devices.find(d => d.ipAddress);
+  // sync-status uses the machine's local HTTP API — only valid for U5/LAN devices, not ZKBio cloud
+  const firstDevice = devices.find(d => d.ipAddress && d.make !== 'zkteco');
 
   // Machine sync: compare enrolled members against machine employee list (cached 3 min)
   const { data: syncStatus } = useQuery({

@@ -30,6 +30,9 @@ function padKey(s: string): Buffer {
 }
 
 const CANDIDATE_KEYS: Array<{ key: Buffer; iv: Buffer; label: string }> = [
+  // Product key "uniwin" (confirmed from machine auth log)
+  { key: padKey('uniwin'),          iv: Buffer.alloc(16, 0),  label: 'pk_null_iv' },
+  { key: padKey('uniwin'),          iv: padKey('uniwin'),     label: 'pk_self_iv' },
   // Device name (from /getDeviceVersion response) padded to 16 bytes
   { key: padKey('n7v5_alcor2'),     iv: Buffer.alloc(16, 0),  label: 'device_name_null_iv' },
   { key: padKey('n7v5_alcor2'),     iv: padKey('n7v5_alcor2'), label: 'device_name_self_iv' },

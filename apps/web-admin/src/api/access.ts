@@ -23,6 +23,8 @@ export interface AccessDevice {
   branchId: string;
   zone: string;
   type: string;
+  make?: 'u5' | 'zkteco' | 'hikvision' | 'ebkn' | 'matrix' | 'other';
+  localIp?: string;
   isOnline: boolean;
   lastHeartbeat?: string;
   ipAddress?: string;
@@ -79,11 +81,19 @@ export const accessApi = {
 
   u5Employees: (deviceId: string) =>
     api
-      .get<{ employees: Array<{ u5UserId: string; name: string; id_number?: string }> }>(
+      .get<{ employees: Array<{ u5UserId: string; name: string; id_number?: string; accessCardNumber?: string; hasFace?: boolean }> }>(
         `/access-devices/${deviceId}/u5-employees`,
       )
       .then((r) => r.data)
-      .catch(() => ({ employees: [] as Array<{ u5UserId: string; name: string; id_number?: string }> })),
+      .catch(() => ({ employees: [] as Array<{ u5UserId: string; name: string; id_number?: string; accessCardNumber?: string; hasFace?: boolean }> })),
+
+  linkU5Employee: (
+    deviceId: string,
+    userId: string,
+    body: { memberId: string | null; accessCardNumber?: string; hasFace?: boolean },
+  ) =>
+    api.post<{ ok: boolean }>(`/access-devices/${deviceId}/u5-employees/${encodeURIComponent(userId)}/link`, body)
+      .then((r) => r.data),
 
   fastConnect: (deviceCode: string, body: {
     deviceIp: string; devicePort?: number;
@@ -141,6 +151,10 @@ export const accessApi = {
     api
       .put<{ ok: boolean }>(`/access-devices/${deviceId}/mqtt-config`, body)
       .then((r) => r.data),
+
+  patchDevice: (deviceCode: string, updates: { localIp?: string; name?: string }) =>
+    api.patch<{ ok: boolean }>(`/access-devices/${deviceCode}`, updates)
+      .then(r => r.data),
 
   logSetup: (body: {
     sessionId: string; branchId: string; deviceCode: string;
