@@ -22,10 +22,22 @@ const MQTT_PASSWORD = 'device_pass123';
 // Common AES-128-CBC defaults used by ZKBio / generic face-recognition devices.
 // The machine's firmware determines the actual key/IV — we try these on each auth request
 // and log the result. If none match, we still grant access in test mode.
+// Build a 16-byte buffer from a string (null-pad or zero-pad to length)
+function padKey(s: string): Buffer {
+  const b = Buffer.alloc(16, 0);
+  Buffer.from(s).copy(b);
+  return b;
+}
+
 const CANDIDATE_KEYS: Array<{ key: Buffer; iv: Buffer; label: string }> = [
+  // Device name (from /getDeviceVersion response) padded to 16 bytes
+  { key: padKey('n7v5_alcor2'),     iv: Buffer.alloc(16, 0),  label: 'device_name_null_iv' },
+  { key: padKey('n7v5_alcor2'),     iv: padKey('n7v5_alcor2'), label: 'device_name_self_iv' },
+  // SN-based keys
+  { key: padKey('ZY20241227014'),   iv: Buffer.alloc(16, 0),  label: 'sn_null_iv' },
+  // Generic defaults
   { key: Buffer.from('0123456789abcdef'), iv: Buffer.from('0000000000000000'), label: 'default1' },
   { key: Buffer.from('1234567890123456'), iv: Buffer.from('1234567890123456'), label: 'default2' },
-  { key: Buffer.from('abcdef0123456789'), iv: Buffer.from('0000000000000000'), label: 'default3' },
 ];
 
 function tryDecrypt(b64: string): { label: string; plaintext: string } | null {
