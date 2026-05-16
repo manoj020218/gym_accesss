@@ -8,9 +8,10 @@ import { toast } from '../../store/toast';
 
 type WizardStep   = 'form' | 'credentials' | 'waiting' | 'done';
 type ConfigSub    = 'device-id' | 'branch-id' | 'server-ip' | 'summary';
+type WaitSub      = 'ip' | 'guide' | 'polling';
 const CONFIG_SUBS: ConfigSub[] = ['device-id', 'branch-id', 'server-ip', 'summary'];
 
-interface Creds { deviceCode: string; secret: string; sessionId: string }
+interface Creds { deviceCode: string; deviceId: string; secret: string; sessionId: string }
 
 interface Props {
   open: boolean;
@@ -140,21 +141,34 @@ function ConfirmCard({
   );
 }
 
+/* ── Elapsed seconds counter ─────────────────────────────────────────────── */
+function ElapsedTimer() {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return (
+    <span className="text-xs text-muted font-mono tabular-nums">
+      {m > 0 ? `${m}m ` : ''}{String(s).padStart(2, '0')}s elapsed
+    </span>
+  );
+}
+
 /* ── Main wizard ─────────────────────────────────────────────────────────── */
 export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnline }: Props) {
   const qc = useQueryClient();
   const [step, setStep]       = useState<WizardStep>('form');
   const [subStep, setSubStep] = useState<ConfigSub>('device-id');
+  const [waitSub, setWaitSub] = useState<WaitSub>('ip');
   const [devName, setDevName] = useState('Main Entry Scanner');
   const [creds, setCreds]     = useState<Creds | null>(null);
   const [customIp, setCustomIp] = useState('');
 
-  // Machine connect form state (waiting step)
-  const [machineIp, setMachineIp]     = useState('');
-  const [machinePwd, setMachinePwd]   = useState('123456');
-  const [machineErr, setMachineErr]   = useState('');
-  const [machineOk, setMachineOk]     = useState(false);
-  const [configuring, setConfiguring] = useState(false);
+  // Machine IP for step-by-step guide
+  const [machineIp, setMachineIp] = useState('');
 
   // Server URL: use the admin panel's own origin (works for both cloud + LAN)
   const defaultServerUrl = typeof window !== 'undefined' ? window.location.origin : '';
@@ -169,15 +183,18 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
   });
 
   useEffect(() => {
-    if (step === 'waiting' && creds && devices.some((d) => d.isOnline)) {
-      void accessApi.logSetup({
-        sessionId: creds.sessionId, branchId, deviceCode: creds.deviceCode,
-        step: 'DEVICE_ONLINE', confirmedValue: 'online',
-        metadata: { deviceName: devName },
-      });
-      setStep('done');
+    if (step === 'waiting' && waitSub === 'polling' && creds) {
+      const device = devices.find((d) => d._id === creds.deviceId);
+      if (device?.isOnline) {
+        void accessApi.logSetup({
+          sessionId: creds.sessionId, branchId, deviceCode: creds.deviceCode,
+          step: 'DEVICE_ONLINE', confirmedValue: 'online',
+          metadata: { deviceName: devName },
+        });
+        setStep('done');
+      }
     }
-  }, [devices, step, creds, branchId, devName]);
+  }, [devices, step, waitSub, creds, branchId, devName]);
 
   const log = useCallback((stepName: string, value?: string, meta?: Record<string, unknown>) => {
     if (!creds) return;
@@ -191,7 +208,7 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
     mutationFn: () => accessApi.registerDevice(branchId, devName.trim()),
     onSuccess: (data) => {
       const sessionId = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      setCreds({ deviceCode: data.deviceCode, secret: data.secret, sessionId });
+      setCreds({ deviceCode: data.deviceCode, deviceId: data.deviceId, secret: data.secret, sessionId });
       setSubStep('device-id');
       setStep('credentials');
       void qc.invalidateQueries({ queryKey: ['access-devices', branchId] });
@@ -204,49 +221,12 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
     onError: () => toast.error('Registration failed — try again or check server logs'),
   });
 
-  // Directly configure machine from browser (browser must be on same LAN as machine)
-  const handleConfigureMachine = useCallback(async () => {
-    const ip = machineIp.trim();
-    if (!ip || !creds) return;
-    setMachineErr('');
-    setMachineOk(false);
-    setConfiguring(true);
-    const vpsHost = window.location.hostname;
-    const payload = {
-      set: 1,
-      password: machinePwd || '123456',
-      cloudserver_address: `http://${vpsHost}`,
-      third_ip: 0,
-      third_ip_ddr: '3000',
-      cloudserver_pollingtime: 10,
-      protocol_type: 1,
-    };
-    try {
-      const res = await fetch(`http://${ip}/serverSetting`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        setMachineOk(true);
-        log('MACHINE_CONFIGURED', ip, { vpsHost });
-      } else {
-        setMachineErr(`Machine returned HTTP ${res.status}. Check password and try again.`);
-      }
-    } catch {
-      // Mixed content or CORS: browser blocked the request — show manual fallback
-      setMachineErr('MANUAL_FALLBACK');
-    } finally {
-      setConfiguring(false);
-    }
-  }, [machineIp, machinePwd, creds, log]);
 
   const handleClose = () => {
-    setStep('form'); setSubStep('device-id');
+    setStep('form'); setSubStep('device-id'); setWaitSub('ip');
     setDevName('Main Entry Scanner');
     setCreds(null); setCustomIp('');
-    setMachineIp(''); setMachinePwd('123456'); setMachineErr(''); setMachineOk(false);
-    setConfiguring(false);
+    setMachineIp('');
     onClose();
   };
 
@@ -401,110 +381,158 @@ export default function AddDeviceWizard({ open, branchId, onClose, onDeviceOnlin
       {/* ═══ Step 3 — Configure machine ═════════════════════════════════════ */}
       {step === 'waiting' && creds && (
         <div className="space-y-5">
-          <div>
-            <p className="text-sm font-bold text-slate-100 mb-1">Connect your machine</p>
-            <p className="text-xs text-muted">Enter the machine's local IP and password to point it at this server automatically.</p>
-          </div>
 
-          <div className="space-y-3">
-            <Input
-              label="Machine IP Address"
-              value={machineIp}
-              onChange={(e) => { setMachineIp(e.target.value); setMachineErr(''); setMachineOk(false); }}
-              placeholder="192.168.1.92"
-              autoFocus
-            />
-            <Input
-              label="Machine Password"
-              value={machinePwd}
-              onChange={(e) => { setMachinePwd(e.target.value); setMachineErr(''); }}
-              placeholder="123456"
-            />
-          </div>
-
-          {!machineOk && (
-            <Button
-              className="w-full justify-center"
-              loading={configuring}
-              disabled={!machineIp.trim() || configuring}
-              onClick={() => void handleConfigureMachine()}
-            >
-              Configure Machine →
-            </Button>
-          )}
-
-          {machineOk && (
-            <div className="flex items-center gap-2 p-3 bg-emerald-900/20 border border-emerald-500/20 rounded-xl">
-              <span className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
-                <svg viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" className="w-2.5 h-2.5"><polyline points="10 3 5 9 2 6"/></svg>
-              </span>
-              <p className="text-xs text-emerald-300 font-semibold">Machine configured — waiting for it to connect…</p>
-            </div>
-          )}
-
-          {machineErr && machineErr !== 'MANUAL_FALLBACK' && !configuring && (
-            <div className="flex items-start gap-2 p-3 bg-red-900/20 border border-red-500/20 rounded-xl">
-              <span className="text-red-400 shrink-0 mt-0.5">✕</span>
-              <p className="text-xs text-red-300">{machineErr}</p>
-            </div>
-          )}
-
-          {/* Manual fallback — shown when browser blocks the request (HTTPS → HTTP) */}
-          {machineErr === 'MANUAL_FALLBACK' && (
-            <div className="space-y-2">
-              <div className="flex items-start gap-2 p-3 bg-amber-900/20 border border-amber-500/20 rounded-xl">
-                <span className="text-amber-400 shrink-0 mt-0.5">!</span>
-                <p className="text-xs text-amber-300">
-                  Browser blocked the request (HTTPS → HTTP). Open your machine's web interface and POST this JSON to <span className="font-mono">http://{machineIp}/serverSetting</span>
-                </p>
+          {/* ── 3a: Enter machine IP ── */}
+          {waitSub === 'ip' && (
+            <>
+              <div>
+                <p className="text-sm font-bold text-slate-100 mb-1">Connect your machine</p>
+                <p className="text-xs text-muted">Enter your machine's local IP address. You'll be shown step-by-step instructions to configure it.</p>
               </div>
-              <button
-                onClick={() => {
-                  const vpsHost = window.location.hostname;
-                  const payload = JSON.stringify({
-                    set: 1, password: machinePwd || '123456',
-                    cloudserver_address: `http://${vpsHost}`,
-                    third_ip: 0, third_ip_ddr: '3000',
-                    cloudserver_pollingtime: 10, protocol_type: 1,
-                  }, null, 2);
-                  void navigator.clipboard.writeText(payload).then(() => toast.success('Payload copied'));
-                }}
-                className="w-full text-xs font-mono bg-[#0d1117] border border-purple-500/20 rounded-xl p-3 text-purple-200/70 text-left hover:border-purple-500/40 transition-colors"
-              >
-                {`{ "set": 1, "cloudserver_address": "http://${window.location.hostname}", "third_ip_ddr": "3000", ... }`}
-                <span className="block mt-1 text-purple-400">Tap to copy full payload</span>
-              </button>
-            </div>
+              <Input
+                label="Machine IP Address"
+                value={machineIp}
+                onChange={(e) => setMachineIp(e.target.value)}
+                placeholder="192.168.1.92"
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && machineIp.trim() && setWaitSub('guide')}
+              />
+              <div className="flex justify-between pt-1">
+                <Button variant="outline" size="sm" onClick={() => setStep('credentials')}>← Back</Button>
+                <Button disabled={!machineIp.trim()} onClick={() => setWaitSub('guide')}>
+                  Show Setup Guide →
+                </Button>
+              </div>
+            </>
           )}
 
-          {/* Auto-detection */}
-          <div className="flex items-center gap-2 text-xs text-muted pt-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
-            Waiting for machine to register with server…
-          </div>
+          {/* ── 3b: Step-by-step guide ── */}
+          {waitSub === 'guide' && (
+            <>
+              <div>
+                <p className="text-sm font-bold text-slate-100 mb-1">Configure your machine</p>
+                <p className="text-xs text-muted">Follow these steps in the machine's web interface.</p>
+              </div>
 
-          <div className="flex justify-between pt-1 border-t border-white/[0.06]">
-            <Button variant="outline" size="sm" onClick={() => setStep('credentials')}>← Back</Button>
-            <Button variant="outline" size="sm" onClick={handleClose}>Cancel</Button>
-          </div>
+              <div className="bg-slate-900/60 border border-white/10 rounded-2xl divide-y divide-white/[0.05]">
+                {([
+                  { n: 1, label: 'Open your browser',          detail: `Go to http://${machineIp}`,             copy: `http://${machineIp}` },
+                  { n: 2, label: 'Enter login credentials',    detail: 'Default: admin / 123456' },
+                  { n: 3, label: 'Click "Network" in sidebar', detail: 'Left side navigation tab' },
+                  { n: 4, label: 'Click "Server Address"',     detail: 'Under the Network section' },
+                  { n: 5, label: 'Set Protocol',               detail: 'Select  HTTP' },
+                  { n: 6, label: 'Enter Server Address',       detail: `http://${window.location.hostname}`,    copy: `http://${window.location.hostname}` },
+                  { n: 7, label: 'Set Polling Time',           detail: '30  seconds' },
+                  { n: 8, label: 'Set Third Party Record Push', detail: 'Select  Open' },
+                  { n: 9, label: 'Set Push Address',           detail: '3000',                                  copy: '3000' },
+                ] as { n: number; label: string; detail?: string; copy?: string }[]).map(({ n, label, detail, copy }) => (
+                  <div key={n} className="flex items-start gap-3 px-4 py-3">
+                    <div className="w-5 h-5 rounded-full bg-purple-600/30 border border-purple-500/30 flex items-center justify-center text-[10px] font-bold text-purple-300 shrink-0 mt-0.5">
+                      {n}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-semibold text-slate-200">{label}</span>
+                      {detail && (
+                        copy ? (
+                          <button
+                            onClick={() => void navigator.clipboard.writeText(copy).then(() => toast.success('Copied!'))}
+                            className="block mt-0.5 font-mono text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors"
+                          >
+                            {detail}
+                            <span className="ml-1.5 text-[10px] text-slate-500 font-sans non-italic">(tap to copy)</span>
+                          </button>
+                        ) : (
+                          <p className="text-[11px] text-muted mt-0.5">{detail}</p>
+                        )
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <button onClick={() => setWaitSub('ip')} className="text-xs text-muted hover:text-slate-300 transition-colors">← Back</button>
+                <Button onClick={() => { log('SETUP_MANUAL_STEPS_DONE', machineIp); setWaitSub('polling'); }}>
+                  Done — Waiting for connection →
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* ── 3c: Polling animation ── */}
+          {waitSub === 'polling' && (
+            <>
+              <div className="flex flex-col items-center gap-5 py-4">
+                {/* Pulsing rings */}
+                <div className="relative w-20 h-20 flex items-center justify-center">
+                  <div className="absolute inset-0 rounded-full border-2 border-purple-500/40 animate-ping" />
+                  <div className="absolute inset-3 rounded-full border border-purple-400/30 animate-ping" style={{ animationDelay: '0.4s' }} />
+                  <div className="w-14 h-14 rounded-full bg-purple-600/15 border border-purple-500/30 flex items-center justify-center">
+                    <svg fill="none" stroke="#A78BFA" strokeWidth="1.5" width="22" height="22" viewBox="0 0 24 24">
+                      <rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/>
+                      <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+                    </svg>
+                  </div>
+                </div>
+
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-bold text-slate-100">Waiting for machine to connect…</p>
+                  <p className="text-xs text-muted">The machine should connect within 30–60 seconds after saving settings.</p>
+                  <div className="pt-1">
+                    <ElapsedTimer />
+                  </div>
+                </div>
+
+                <div className="w-full bg-slate-900/50 border border-white/[0.07] rounded-xl px-4 py-3 flex items-start gap-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 mt-1.5" />
+                  <p className="text-[11px] text-slate-400">
+                    If the machine doesn't connect in 2 minutes, go back and double-check the server address and polling time settings.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-between border-t border-white/[0.06] pt-4">
+                <button onClick={() => setWaitSub('guide')} className="text-xs text-muted hover:text-slate-300 transition-colors">← Back to guide</button>
+                <Button variant="outline" size="sm" onClick={handleClose}>Cancel</Button>
+              </div>
+            </>
+          )}
+
         </div>
       )}
 
       {/* ═══ Step 4 — Done ══════════════════════════════════════════════════ */}
       {step === 'done' && (
-        <div className="flex flex-col items-center gap-5 py-2">
-          <div className="w-16 h-16 rounded-full bg-emerald-600/20 border-2 border-emerald-500 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-emerald-400">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+        <div className="flex flex-col items-center gap-5 py-4">
+          <div className="relative">
+            <div className="w-20 h-20 rounded-full bg-emerald-600/20 border-2 border-emerald-500 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-9 h-9 text-emerald-400">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center">
+              <svg viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" className="w-3 h-3">
+                <polyline points="10 3 5 9 2 6"/>
+              </svg>
+            </div>
           </div>
-          <div className="text-center">
-            <p className="text-sm font-bold text-emerald-300 mb-1">Machine is Online!</p>
-            <p className="text-xs text-muted">The device connected successfully. You can now enroll faces for members on this branch.</p>
+
+          <div className="text-center space-y-1.5">
+            <p className="text-base font-extrabold text-emerald-300">Machine Added Successfully!</p>
+            <p className="text-xs text-muted">
+              <span className="font-semibold text-slate-300">{devName}</span> has connected to the server.
+              You can now enroll member faces on this machine.
+            </p>
           </div>
-          <Button onClick={() => { handleClose(); onDeviceOnline(); }}>
-            Continue to Face Enrollment →
-          </Button>
+
+          <div className="flex flex-col gap-2.5 w-full">
+            <Button className="w-full justify-center" onClick={() => { handleClose(); onDeviceOnline(); }}>
+              Continue to Face Enrollment →
+            </Button>
+            <button onClick={handleClose} className="text-xs text-muted hover:text-slate-300 text-center transition-colors">
+              Close
+            </button>
+          </div>
         </div>
       )}
     </Modal>
