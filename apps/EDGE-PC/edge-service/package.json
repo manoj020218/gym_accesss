@@ -1,0 +1,31 @@
+{
+  "name": "@edge-gym/edge-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --env-file=.env --import tsx --watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@edge-gym/access-engine": "workspace:*",
+    "@edge-gym/shared-types": "workspace:*",
+    "better-sqlite3": "^11.0.0",
+    "fastify": "^4.28.1",
+    "mqtt": "^5.15.1",
+    "node-fetch": "^3.3.2",
+    "pino": "^9.2.0",
+    "pino-pretty": "^11.2.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.10",
+    "@types/node": "^20.14.2",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}

@@ -1,0 +1,41 @@
+[
+  {
+    "name": "main-entrance",
+    "type": "wiegand",
+    "zone": "MAIN_FLOOR",
+    "relayPin": 22,
+    "ledGreenPin": 25,
+    "ledRedPin": 26,
+    "buzzerPin": 24,
+    "options": {
+      "d0Pin": 17,
+      "d1Pin": 18,
+      "bitFormat": 26
+    }
+  },
+  {
+    "name": "cardio-door",
+    "type": "tcp",
+    "zone": "CARDIO_AREA",
+    "relayPin": 23,
+    "ledGreenPin": 27,
+    "ledRedPin": 28,
+    "options": {
+      "host": "192.168.1.101",
+      "port": 4370,
+      "protocol": "zkteco"
+    }
+  },
+  {
+    "name": "reception-qr",
+    "type": "serial",
+    "zone": "RECEPTION",
+    "relayPin": 29,
+    "options": {
+      "path": "/dev/ttyUSB0",
+      "baudRate": 9600,
+      "delimiter": "\n",
+      "format": "ascii"
+    }
+  }
+]
