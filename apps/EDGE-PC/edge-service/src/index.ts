@@ -1,12 +1,16 @@
 import Fastify  from 'fastify';
 import { createReadStream } from 'node:fs';
 import { readdir, stat }   from 'node:fs/promises';
+import { spawn }           from 'node:child_process';
+import { writeFile }       from 'node:fs/promises';
+import { tmpdir }          from 'node:os';
 import path from 'node:path';
 import { config } from './config.js';
 import { EdgeDB } from './db/sqlite.js';
 import { decide } from './access/decision.js';
 import { startSyncWorker, syncU5Faces } from './sync/worker.js';
 import { U5Adapter } from './hardware/u5/index.js';
+import { mqttListener, bridgeListener } from './mqtt/client.js';
 import { Zone, AccessDecision } from '@edge-gym/shared-types';
 import { z } from 'zod';
 
@@ -181,16 +185,91 @@ async function main() {
     syncU5Faces(app.log).catch(e => app.log.error(e, '[faces] syncU5Faces crashed'));
   });
 
+  // POST /machines/u5/open-door
+  // Manual guest/visitor door unlock from the desktop operator.
+  // Calls the U5 machine's /openDoor HTTP endpoint (firmware must support it).
+  // If the machine doesn't expose /openDoor, returns ok:false with a clear message —
+  // the desktop UI should then show a manual prompt to the operator.
+  app.post('/machines/u5/open-door', async (_req, reply) => {
+    if (!config.U5_MACHINE_IP) {
+      return reply.status(503).send({ ok: false, error: 'U5_MACHINE_IP not configured' });
+    }
+    const u5 = new U5Adapter({
+      ip:       config.U5_MACHINE_IP,
+      port:     config.U5_MACHINE_PORT,
+      password: config.U5_MACHINE_PASSWORD,
+    });
+    const result = await u5.openDoor();
+    return reply.send({ ok: result.success, error: result.success ? undefined : result.message });
+  });
+
+  // GET /machines/u5/status — quick status for desktop dashboard
+  app.get('/machines/u5/status', async (_req, reply) => {
+    if (!config.U5_MACHINE_IP) {
+      return reply.send({ online: false, reason: 'U5_MACHINE_IP not configured' });
+    }
+    const u5 = new U5Adapter({ ip: config.U5_MACHINE_IP, port: config.U5_MACHINE_PORT, password: config.U5_MACHINE_PASSWORD });
+    const online = await u5.ping();
+    let info = null;
+    if (online) {
+      const v = await u5.getDeviceVersion();
+      if (v.success) info = v.info;
+    }
+    return reply.send({ online, info });
+  });
+
   try {
     await app.listen({ port: config.EDGE_PORT, host: '0.0.0.0' });
     app.log.info(`⚡ EDGE service [${config.EDGE_DEVICE_ID}] listening on :${config.EDGE_PORT}`);
     startSyncWorker(db, app.log);
+
+    // Start Bridge MQTT listener if configured (Wiegand hardware → MQTT)
+    if (config.BRIDGE_MQTT_BROKER_URL && config.BRIDGE_MQTT_TOPIC_BASE) {
+      bridgeListener.start(
+        { brokerUrl: config.BRIDGE_MQTT_BROKER_URL, infoTopic: config.BRIDGE_MQTT_TOPIC_BASE,
+          username: config.BRIDGE_MQTT_USERNAME, password: config.BRIDGE_MQTT_PASSWORD },
+        db, app.log,
+      );
+      app.log.info({ topic: `${config.BRIDGE_MQTT_TOPIC_BASE}/attendance` }, '⚡ Bridge MQTT listener started');
+    }
+
+    // Spawn FRPC if configured — punches VPN tunnel so VPS can reach this edge PC
+    if (config.FRPC_BINARY && config.FRPC_SERVER_ADDR && config.FRPC_TOKEN) {
+      void spawnFrpc(app.log);
+    }
+
   } catch (err) {
     app.log.error(err);
     process.exit(1);
   }
 
   process.on('SIGTERM', () => { db.close(); process.exit(0); });
+}
+
+// ── FRPC auto-tunnel ──────────────────────────────────────────────────────────
+// Writes a minimal frpc.toml and spawns the frpc binary.
+// VPS then routes /edge/{subdomain}/ to this PC so VPS-triggered enrollments work.
+async function spawnFrpc(log: ReturnType<typeof Fastify>['log']): Promise<void> {
+  const ini = [
+    `serverAddr = "${config.FRPC_SERVER_ADDR}"`,
+    `serverPort = ${config.FRPC_SERVER_PORT}`,
+    `auth.token = "${config.FRPC_TOKEN}"`,
+    '',
+    `[[proxies]]`,
+    `name = "edge-${config.EDGE_DEVICE_ID}"`,
+    `type = "http"`,
+    `localPort = ${config.EDGE_PORT}`,
+    `subdomain = "${config.FRPC_SUBDOMAIN ?? config.EDGE_DEVICE_ID}"`,
+  ].join('\n');
+
+  const iniPath = path.join(tmpdir(), `frpc_${config.EDGE_DEVICE_ID}.toml`);
+  await writeFile(iniPath, ini, 'utf8');
+
+  const proc = spawn(config.FRPC_BINARY!, ['-c', iniPath], { stdio: 'pipe' });
+  proc.stdout?.on('data', (d: Buffer) => log.debug(`[frpc] ${d.toString().trim()}`));
+  proc.stderr?.on('data', (d: Buffer) => log.warn(`[frpc] ${d.toString().trim()}`));
+  proc.on('exit', (code) => log.warn({ code }, '[frpc] Process exited — tunnel down'));
+  log.info({ iniPath }, '[frpc] Tunnel started');
 }
 
 void main();

@@ -246,6 +246,25 @@ export async function syncU5Faces(log: BaseLogger): Promise<{
 
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
 
+  // 4. Write employee JSON backup (metadata only — no pic_large, that's saved as JPEG)
+  try {
+    const backupDir = path.resolve(config.EMPLOYEE_BACKUP_DIR, deviceSn);
+    await mkdir(backupDir, { recursive: true });
+    const backupData = empResult.data.map(e => ({
+      userId:          e.userId,
+      name:            e.name,
+      id_number:       e.id_number  ?? null,
+      hasFace:         !!e.pic_large,
+    }));
+    await writeFile(
+      path.join(backupDir, `employees_${today}.json`),
+      JSON.stringify({ deviceSn, exportedAt: new Date().toISOString(), total: backupData.length, employees: backupData }, null, 2),
+    );
+    log.info({ deviceSn, count: backupData.length }, '[faces] Employee backup saved');
+  } catch (err) {
+    log.warn({ err }, '[faces] Employee backup write failed — faces still saved');
+  }
+
   for (const emp of empResult.data) {
     // id_number is the memberCode we stored during enrollment
     if (!emp.id_number || !emp.pic_large) { result.skipped++; continue; }

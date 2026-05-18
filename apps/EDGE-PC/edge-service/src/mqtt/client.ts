@@ -174,3 +174,128 @@ export class MqttAttendanceListener {
 
 // Singleton — the sync worker imports this instance
 export const mqttListener = new MqttAttendanceListener();
+
+// ── Bridge Hardware MQTT Listener ─────────────────────────────────────────────
+//
+// Edge-Bridge-Mini-C3 (Wiegand → MQTT) publishes to:
+//   {topicBase}/attendance   → card swipes
+//   {topicBase}/status       → device status
+//   {topicBase}/heartbeat    → keepalive
+//
+// Attendance payload:
+//   { type:"attendance", card_id:"8-12345", epoch:1234567890, bits:26, source:"wiegand26" }
+//
+// card_id is "facilityCode-cardNumber" from Wiegand26/34.
+// We try exact match first; if not found, try just the card number part.
+// This handles both storage formats (stored as "8-12345" or just "12345").
+//
+// Access decision is evaluated locally (blocklist, plan, time windows).
+// Result queued to SQLite → pushed to VPS by sync worker.
+
+import { decide } from '../access/decision.js';
+import type { Zone } from '@edge-gym/shared-types';
+
+type BridgeAttendancePayload = {
+  type:     'attendance';
+  card_id:  string;
+  epoch?:   number;
+  timestamp?: number;
+  bits?:    number;
+  source?:  string;
+};
+
+export class BridgeMqttListener {
+  private client: MqttClient | null = null;
+  private db:  EdgeDB | null = null;
+  private log: BaseLogger | null = null;
+
+  start(cfg: MqttLiveConfig, db: EdgeDB, log: BaseLogger): void {
+    this.db  = db;
+    this.log = log;
+
+    if (this.client?.connected) return;
+    if (this.client) { this.client.end(true); this.client = null; }
+
+    const attendanceTopic = `${cfg.infoTopic}/attendance`;
+
+    const client = mqtt.connect(cfg.brokerUrl, {
+      clientId:        `edge_bridge_${edgeConfig.EDGE_DEVICE_ID}_${Date.now()}`,
+      username:        cfg.username || undefined,
+      password:        cfg.password || undefined,
+      reconnectPeriod: 15_000,
+      connectTimeout:  15_000,
+      clean:           true,
+    });
+
+    client.on('connect', () => {
+      log.info({ topic: attendanceTopic }, '[bridge-mqtt] Connected — subscribing to Wiegand attendance');
+      client.subscribe(attendanceTopic, { qos: 1 }, (err) => {
+        if (err) log.error({ err }, '[bridge-mqtt] Subscribe failed');
+      });
+    });
+
+    client.on('message', (_topic, payload) => this.handleMessage(payload.toString()));
+    client.on('error',     (err) => log.warn({ err }, '[bridge-mqtt] Broker error'));
+    client.on('reconnect', ()    => log.debug('[bridge-mqtt] Reconnecting…'));
+    client.on('offline',   ()    => log.warn('[bridge-mqtt] Client offline'));
+
+    this.client = client;
+  }
+
+  get isConnected(): boolean { return this.client?.connected ?? false; }
+
+  private handleMessage(raw: string): void {
+    const db  = this.db!;
+    const log = this.log!;
+
+    let msg: BridgeAttendancePayload;
+    try { msg = JSON.parse(raw) as BridgeAttendancePayload; } catch { return; }
+    if (msg.type !== 'attendance' || !msg.card_id) return;
+
+    const rawCardId = msg.card_id.trim();
+    // Try exact match, then fall back to just the number after the last '-'
+    const lookupKey = this.resolveCardId(rawCardId, db);
+
+    const eventTime = msg.epoch
+      ? new Date(msg.epoch * 1000)
+      : new Date();
+
+    const eventId = `bridge_${edgeConfig.EDGE_DEVICE_ID}_${rawCardId.replace(/-/g, '')}_${eventTime.getTime()}`;
+
+    if (!lookupKey) {
+      log.info({ rawCardId }, '[bridge-mqtt] Unknown card — no member match (enroll RFID card in member profile)');
+      return;
+    }
+
+    // Run the full access decision (blocklist, plan status, time windows, anti-passback)
+    const result = decide(db, { identifierValue: lookupKey, identifierType: 'rfid', zone: 'main_entry' as Zone });
+
+    try {
+      db.appendEvent({
+        eventId,
+        deviceId:       edgeConfig.EDGE_DEVICE_ID,
+        branchId:       edgeConfig.EDGE_BRANCH_ID,
+        zone:           'main_entry',
+        subjectType:    result.subjectType,
+        subjectId:      result.subjectId,
+        subjectName:    result.subjectName,
+        decision:       result.decision,
+        denyReason:     result.denyReason,
+        identifierUsed: 'rfid',
+        eventTime:      eventTime.toISOString(),
+      });
+      log.info({ rawCardId, decision: result.decision }, '[bridge-mqtt] Wiegand card event queued');
+    } catch {
+      log.debug({ eventId }, '[bridge-mqtt] Duplicate event ignored');
+    }
+  }
+
+  private resolveCardId(raw: string, db: EdgeDB): string | null {
+    if (db.getMemberByRfid(raw)) return raw;
+    const numOnly = raw.includes('-') ? raw.split('-').pop()! : null;
+    if (numOnly && db.getMemberByRfid(numOnly)) return numOnly;
+    return null;
+  }
+}
+
+export const bridgeListener = new BridgeMqttListener();

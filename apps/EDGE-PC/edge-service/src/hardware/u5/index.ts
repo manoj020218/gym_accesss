@@ -354,4 +354,25 @@ export class U5Adapter {
 
     return { success: true, info: version.info };
   }
+
+  /**
+   * Trigger the door relay — manual guest/visitor unlock from the desktop operator.
+   * Only works on firmware versions that expose /openDoor.
+   * Returns success:false (not an error) if the endpoint is absent — caller should
+   * fall back to a visual prompt asking the operator to open manually.
+   */
+  async openDoor(): Promise<U5Result> {
+    try {
+      const data = await this.post<{ result?: number; code?: number; message?: string }>(
+        '/openDoor',
+        { password: this.password },
+      );
+      const ok = data.result === 0 || data.code === U5_CODE_OK;
+      return ok
+        ? { success: true }
+        : { success: false, code: data.result ?? data.code ?? -1, message: data.message ?? 'Door open rejected by device' };
+    } catch (err) {
+      return { success: false, code: 0, message: err instanceof Error ? err.message : 'Network error reaching U5' };
+    }
+  }
 }

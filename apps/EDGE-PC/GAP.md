@@ -1,189 +1,164 @@
-# EDGE-PC — Gap Analysis
-**Date:** 2026-05-17  
-**Reference commit:** `d730a29` (2026-05-15 — last complete state)
+# EDGE-PC — Gap Analysis (Updated 2026-05-18)
 
 ---
 
-## What Already Exists (in `apps/edge-service/`)
+## Architecture
 
-The core engine is fully built and working at the May-15 commit.
-
-| Component | File | Status |
-|---|---|---|
-| **U5 Adapter** | `src/hardware/u5/index.ts` | ✅ Complete — enrollFace, getEmployeeList, getAttendanceLogs, deleteEmployee, onboard, ping, serverSetting |
-| **Access Decision Engine** | `src/access/decision.ts` | ✅ Complete — 5-rule engine, RFID/QR/face, anti-passback, zone check |
-| **SQLite Schema** | `src/db/schema.ts` | ✅ Complete — members, staff, policies, blocklist, events queue, sync_state |
-| **Sync Worker** | `src/sync/worker.ts` | ✅ Complete — pull (VPS → SQLite), push (events → VPS), heartbeat, U5 attendance poll, face sync |
-| **MQTT Listener** | `src/mqtt/client.ts` | ✅ Built — listens for live machine push events |
-| **Face File Server** | `src/index.ts` `/faces/*` routes | ✅ Complete — serves JPEG faces by memberCode/filename |
-| **Fastify HTTP server** | `src/index.ts` | ✅ Running — `/access/decide`, `/enroll-face`, `/u5/employees`, `/sync-faces`, `/health` |
-| **Config (Zod)** | `src/config.ts` | ✅ Complete — all env vars validated on startup |
-| **FRPC template** | `infra/frp/frpc.ini.example` | ✅ Template exists |
-
-**The sync loop (`startSyncWorker`) already does:**
-- Every 30 s: poll U5 machine → import attendance → push events to VPS → pull members/policies from VPS
-- Every 60 s: heartbeat to VPS (registers edgeServiceIp so VPS knows where to forward enroll requests)
-- On startup: immediate pull + heartbeat
-
----
-
-## Root Cause — Why Access Monitor Shows Nothing
-
-The VPS's `POST /access-devices/:code/sync-attendance` tries to reach `192.168.x.x` directly from the internet.  
-That fails with **503** because the VPS is not on the gym's LAN.
-
-**Fix:** Run `apps/edge-service` on any PC on the same LAN as the U5 machine.  
-`syncU5Attendance()` in the sync worker already does exactly this poll — it just needs to be running.
-
----
-
-## What is Missing (Gaps to Build)
-
-### GAP 1 — Packaging: Electron or Tauri desktop app
-**Note says:** "use Electron or Tauri so no cost should be to developer"  
-**Current state:** `edge-service` is a plain Node.js process, run via `npm start` or PM2. No installer, no system tray, no auto-launch on Windows boot.  
-**What to build:**
-- Wrap edge-service in Electron (simpler) or Tauri (lighter, Rust)
-- System tray icon: green = syncing, red = machine unreachable, yellow = no VPS
-- Auto-launch on Windows startup (registry key or startup folder)
-- One-click `.exe` / `.msi` installer (electron-builder or Tauri bundler)
-- No additional cost — both are free/open-source
-
----
-
-### GAP 2 — Local Admin UI (offline-first web panel)
-**Note says:** "local admin or owner or role-based login system — even no VPS, all can work fully independent"  
-**Current state:** Web admin (`apps/web-admin`) is designed for VPS + internet. No local UI exists.  
-**What to build:**
-- A local React panel served by the edge-service Fastify server (or Electron shell)
-- Routes needed:
-  - Login (local JWT, no Firebase — simple username+password stored in SQLite)
-  - Dashboard: today's punches, members in gym now, machine status
-  - Members: view/add/edit (local SQLite, offline)
-  - Access Log: today's events, who entered, allow/deny
-  - Machine Management: configure U5 IP, test connection, sync employees
-  - Employee folder: view/export the employee JSON backup
-- Role-based: Owner sees everything; Staff sees only access log and member check-in
-
----
-
-### GAP 3 — Local SQLite for Full Member Data (not just access cache)
-**Note says:** "even no VPS, all can work fully independent"  
-**Current state:** SQLite schema has `local_members` with only access fields (rfid, qr, status, active_until). No name, photo, membership plan details, payments.  
-**What to build:**
-- Extend `local_members` table: add `first_name`, `last_name`, `phone`, `email`, `photo_path`
-- Add `local_memberships` table: plan name, start_date, end_date, amount
-- Add `local_payments` table: amount, date, method
-- VPS `pull` response already sends member data — extend it to include these fields
-- If VPS unavailable: seed from last-pulled data or from employee JSON backup files
-
----
-
-### GAP 4 — Employee JSON Backup Folder
-**Note says:** "save employee detail in employee folder with employee JSON — all employee detail backup here only"  
-**Current state:** Face photos are saved to `./storage/faces/{memberCode}/{userId}_{date}.jpg` ✅  
-But no JSON backup of the employee list exists.  
-**What to build:**
-- After each `getEmployeeList` from machine: write `./storage/employees/{deviceSn}/employees_{date}.json`
-- Format: `[{ userId, name, id_number, accessCardNumber, hasFace, pic_large_path }]`
-- Also write `./storage/employees/members_{date}.json` — local member records snapshot
-- This is the "airgap backup" — if VPS is deleted, gym still has all data
-
----
-
-### GAP 5 — Hardware Bridge (Wiegand / USB / Serial readers)
-**Note says:** "add any type of machine in LAN or using Bridge Hardware to bring them LAN if they are working on Wiegand or USB"  
-**Current state:** `apps/hardware-adapter/` exists in repo. U5 is TCP/HTTP. Wiegand/USB readers need a physical bridge (Pi + Wiegand reader board, or USB HID reader).  
-**What to build:**
-- Bridge reads card swipe → calls `POST /access/decide` on local edge-service → gets ALLOW/DENY → triggers relay
-- The decision engine already accepts `identifierType: 'rfid'` — just needs a reader feeding it
-- For USB HID readers: a small Node.js `node-hid` listener in hardware-adapter
-- For Wiegand: Pi GPIO reader → serial → bridge process
-
----
-
-### GAP 6 — Multi-Machine Support
-**Current state:** Config has a single `U5_MACHINE_IP`. Only one U5 machine per edge-service instance.  
-**What to build:**
-- `MACHINES` config: array of `{ type, ip, port, password, zone, deviceId }`
-- Sync worker runs `syncU5Attendance` for each machine in parallel
-- Each machine's events tagged with its `deviceId`
-- Local admin UI shows per-machine status
-
----
-
-### GAP 7 — Auto-Update / Version Control for Local Software
-**Note says:** "Update and version control of local software"  
-**Current state:** No update mechanism.  
-**What to build:**
-- Edge service checks a VPS endpoint `GET /edge-version` on each startup
-- If newer version available: download `.exe` from VPS (or GitHub Releases), prompt user to update
-- For Electron: `electron-updater` handles delta updates automatically
-- For manual: show tray notification "Update available — click to install"
-
----
-
-### GAP 8 — FRPC Tunnel Setup Automation
-**Current state:** `infra/frp/frpc.ini.example` is a template. User must manually configure and run frpc.  
-**What to build:**
-- Edge-service reads `FRPC_SERVER`, `FRPC_TOKEN`, `FRPC_LOCAL_PORT` from `.env`
-- On startup: auto-generates `frpc.ini` and spawns `frpc.exe` as a child process
-- VPS then reaches `http://edge.yourdomain.com/enroll-face` instead of the LAN IP
-- This allows VPS-triggered enrollments and real-time face sync without admin knowing frpc details
-
----
-
-### GAP 9 — Offline Access Decision → Relay Trigger (RFID without U5)
-**Current state:** `decide()` function returns `{ decision, triggerRelay }`. But nothing in index.ts actually triggers a physical relay.  
-U5 handles its own relay for face scans. But for external RFID readers (not U5), the relay must be triggered by the edge PC.  
-**What to build:**
-- For USB relay board: `usb-relay` npm package or GPIO (Pi)
-- For TCP relay: open a socket to the relay controller and send OPEN command
-- Wire into the `/access/decide` handler: if `triggerRelay === true` → fire relay
-
----
-
-## Priority Order to Get Punches Flowing Today
-
-The fastest path to see events in Access Monitor:
-
-1. **Copy `apps/edge-service/` to the gym LAN PC** (or run on any Windows/Linux PC on LAN)
-2. **Create `.env`** (template below)
-3. **Run `npm install && npm start`**
-4. Within 30 seconds, U5 attendance will be polled and events pushed to VPS
-5. Refresh Access Monitor → punches appear
-
-### Minimum `.env` for the gym LAN PC:
 ```
+Wiegand reader / RFID card
+    │  Wiegand26/34 signal
+    ▼
+Edge-Bridge-Mini-C3 (ESP32 hardware)
+    │  MQTT  {topicBase}/attendance  {type:"attendance",card_id:"8-12345"}
+    ▼
+Local Mosquitto broker (192.168.1.x:1883)
+    │                    │
+    │  subscribed        │  subscribed
+    ▼                    ▼
+BridgeMqttListener    MqttAttendanceListener   ← already in mqtt/client.ts
+(Wiegand card swipes)  (U5 face/card via MQTT)
+    │                    │
+    ▼                    ▼
+decide() — access engine (blocklist, plan, time windows, anti-passback)
+    │
+    ▼
+SQLite event queue  ─→  push to VPS every 30s
+    │
+    ▼  (also)
+U5Adapter.getAttendanceLogs()  ← polled every 30s from sync/worker.ts
+
+U5 machine (192.168.1.92)
+ - triggers its OWN relay for face/card scans ← hardware handles this, NOT software
+ - /openDoor HTTP endpoint (if firmware supports) ← for desktop operator manual unlock
+```
+
+---
+
+## What is Done ✅
+
+| Component | File | Notes |
+|---|---|---|
+| U5 Adapter | `edge-service/src/hardware/u5/index.ts` | enrollFace, getEmployeeList, getAttendanceLogs, deleteEmployee, openDoor, ping, onboard |
+| Access Decision Engine | `edge-service/src/access/decision.ts` | 5-rule engine, RFID/QR/face, blocklist, anti-passback, time windows |
+| SQLite Schema + DB | `edge-service/src/db/` | members, staff, policies, blocklist, events queue, sync_state, device_config |
+| U5 MQTT Listener | `edge-service/src/mqtt/client.ts` | U5 face/card scan events → SQLite via MQTT |
+| **Bridge MQTT Listener** ✅ NEW | `edge-service/src/mqtt/client.ts` | Wiegand card swipes → decide() → SQLite. Handles "8-12345" and "12345" card formats |
+| Sync Worker | `edge-service/src/sync/worker.ts` | pull (VPS→SQLite), push (events→VPS), heartbeat, U5 attendance poll |
+| **Employee JSON Backup** ✅ NEW | `edge-service/src/sync/worker.ts` | Written to `EMPLOYEE_BACKUP_DIR/{deviceSn}/employees_YYYYMMDD.json` after each face sync |
+| Face File Server | `edge-service/src/index.ts` | Serves JPEG faces by memberCode. VPS stores URL reference only |
+| **Door Unlock Endpoint** ✅ NEW | `edge-service/src/index.ts` | `POST /machines/u5/open-door` — operator manual guest unlock |
+| **Machine Status Endpoint** ✅ NEW | `edge-service/src/index.ts` | `GET /machines/u5/status` — online check + device info for desktop dashboard |
+| **FRPC Auto-Spawn** ✅ NEW | `edge-service/src/index.ts` | Writes frpc.toml + spawns frpc binary if FRPC_* env vars set |
+| Config (Zod) | `edge-service/src/config.ts` | All env vars, Bridge MQTT, FRPC all added |
+| Hardware Adapter | `hardware-adapter/src/` | Wiegand/serial/TCP reader bridge, relay/LED/buzzer (for future custom integrations) |
+
+---
+
+## GAP 9 — Relay (CORRECTED understanding)
+
+**Wrong understanding before:** Edge-PC software triggers a relay pin.  
+**Correct:** The U5 machine triggers its own built-in relay for every face/card scan. No software relay needed for normal operation.
+
+**What IS needed (desktop use case):**
+- Operator sees a guest/visitor at the door
+- Clicks "Open Door" in desktop UI
+- UI calls `POST /machines/u5/open-door` on the local edge service
+- Edge service calls `/openDoor` on U5 machine HTTP API
+- Machine triggers its relay → door opens
+- If machine firmware doesn't expose `/openDoor`: UI shows "Machine does not support remote open — ask operator to press the physical button"
+
+This is implemented. See `U5Adapter.openDoor()` and `/machines/u5/open-door` endpoint.
+
+---
+
+## GAP 6 — Multi-Machine (SCOPED)
+
+**Current scope:** Single U5 machine per edge PC instance (one `U5_MACHINE_IP`).  
+**Coming soon:** Multi-machine support. Pattern from EDGEFOLIO project:
+- Config changes to `MACHINES=[{type, ip, port, password, zone, deviceId}]` array
+- Sync worker loops over each machine
+- UI shows per-machine status with a "Coming Soon — Additional Machines" card for machines beyond the first
+
+No code changes needed now. When multi-machine is built, only `config.ts` and `sync/worker.ts` need updating. The U5Adapter is already instantiable with any IP.
+
+---
+
+## GAP 5 — Bridge Hardware (DONE ✅)
+
+Bridge hardware already exists: `D:\IOT Device\Salary_On\smart_salary\Bridge\edge-bridge-mini-c3`  
+ESP32-C3 firmware reads Wiegand26/34, publishes to `{topicBase}/attendance` via MQTT.
+
+**Integration:** `BridgeMqttListener` in `mqtt/client.ts` subscribes to `{BRIDGE_MQTT_TOPIC_BASE}/attendance`, normalizes card_id (handles both "8-12345" and "12345" formats), calls `decide()`, queues event.
+
+**To connect a Bridge device:**
+```env
+BRIDGE_MQTT_BROKER_URL=mqtt://192.168.1.100:1883
+BRIDGE_MQTT_TOPIC_BASE=gym/door1
+```
+
+---
+
+## Still Pending (Next Phase)
+
+### GAP 1 — Electron/Tauri Desktop Packaging
+Wrap edge-service in an Electron shell so it:
+- Shows a system tray icon (green=syncing, red=machine down, yellow=no VPS)
+- Auto-launches on Windows boot
+- Distributes as a one-click `.exe` / `.msi` installer
+- Electron-builder for packaging; electron-updater for auto-updates
+
+### GAP 2 — Local Admin UI
+A React panel served by the edge-service (or inside Electron):
+- Local login (simple username+password, no Firebase)
+- Dashboard: today's punches, members currently in gym, machine online/offline
+- Access Log: real-time event feed, allow/deny, member name
+- **Open Door button**: calls `POST /machines/u5/open-door`
+- Members: view enrolled members + their face status
+- Machine settings: configure IP, password, test connection
+
+### GAP 3 — Full Member Data in SQLite
+Currently `local_members` stores access fields only (rfid, qr, status, active_until).  
+For offline-first local UI: extend pull to include first_name, last_name, phone, photo_path.  
+Needs VPS edge-sync route to return these extra fields.
+
+### GAP 7 — Auto-Update
+Check VPS endpoint `GET /edge-version` on startup. If newer version available:
+- Electron: use `electron-updater` (handles delta updates automatically)
+- Bare Node: download new zip, extract, restart via PM2
+
+### GAP 8 — FRPC Config
+FRPC spawning is coded. What's needed:
+- VPS side: set up `frps` with `vhostHTTPPort` and matching `token`
+- Each edge PC gets a unique subdomain: `edge-DEV-217C.smartgym.iotsoft.in`
+- VPS then routes enrollment/face-sync calls through the tunnel
+
+---
+
+## Minimum .env to Run (with U5 + Bridge)
+
+```env
 NODE_ENV=production
 EDGE_DEVICE_ID=DEV-217C-MP83PUF8
 EDGE_BRANCH_ID=6a070f427e6ea80192d2217c
 EDGE_SYNC_BASE_URL=https://smartgym.iotsoft.in/api/v1/edge
-EDGE_SHARED_SECRET=<from VPS .env EDGE_SHARED_SECRET>
+EDGE_SHARED_SECRET=<from VPS .env>
+EDGE_PORT=8090
+
+# U5 machine
 U5_MACHINE_IP=192.168.1.92
-U5_MACHINE_PORT=80
 U5_MACHINE_PASSWORD=123456
+
+# Storage
 FACE_STORAGE_DIR=./storage/faces
-EDGE_SQLITE_PATH=./data/edge.db
+EMPLOYEE_BACKUP_DIR=./storage/employees
+
+# Bridge MQTT (only if Wiegand bridge is connected)
+BRIDGE_MQTT_BROKER_URL=mqtt://127.0.0.1:1883
+BRIDGE_MQTT_TOPIC_BASE=gym/door1
+
+# FRPC tunnel (only if VPS-initiated enrollments needed)
+# FRPC_BINARY=C:\frp\frpc.exe
+# FRPC_SERVER_ADDR=154.61.69.200
+# FRPC_TOKEN=<frps token>
+# FRPC_SUBDOMAIN=edge-dev217c
 ```
-
----
-
-## Architecture Reminder
-
-```
-U5 Machine (192.168.1.92)
-    │  HTTP poll every 30s
-    ▼
-EDGE-PC (this service, same LAN)
-    │  decide + store in SQLite
-    │  push events every 30s
-    ▼
-VPS API (smartgym.iotsoft.in)
-    │  MongoDB, web admin
-    ▼
-Web Admin (browser)
-    Access Monitor → shows punches ✅
-```
-
-The VPS never calls the machine directly. Only the edge PC does.
