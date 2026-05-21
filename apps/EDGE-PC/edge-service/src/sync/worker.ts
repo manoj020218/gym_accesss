@@ -33,7 +33,7 @@ async function apiFetch(path: string, opts: RequestInit = {}): Promise<unknown> 
 export async function pull(db: EdgeDB, log: BaseLogger): Promise<void> {
   const { lastPolicyVersion } = db.getSyncState();
   const data = await apiFetch(
-    `/pull?sinceVersion=${lastPolicyVersion}&branchId=${config.EDGE_BRANCH_ID}&edgeDeviceId=${config.EDGE_DEVICE_ID}`,
+    `/edge/pull?sinceVersion=${lastPolicyVersion}&branchId=${config.EDGE_BRANCH_ID}&edgeDeviceId=${config.EDGE_DEVICE_ID}`,
   ) as {
     members:       Parameters<typeof db.upsertMembers>[0];
     blocklist?:    string[];
@@ -82,7 +82,7 @@ export async function push(db: EdgeDB, log: BaseLogger): Promise<void> {
     subjectId:      e['subject_id'] as string,
     subjectName:    e['subject_name'] as string | undefined,
     decision:       e['decision'] as string,
-    denyReason:     e['deny_reason'] as string | undefined,
+    denyReason:     (e['deny_reason'] as string | null | undefined) ?? undefined,
     identifierUsed: e['identifier_used'] as string,
     localSeq:       e['local_seq'] as number,
     eventTime:      e['event_time'] as string,
@@ -97,7 +97,7 @@ export async function push(db: EdgeDB, log: BaseLogger): Promise<void> {
     branchId: config.EDGE_BRANCH_ID, fromSeq, toSeq, events, hmacSignature,
   };
 
-  const res = await apiFetch('/push-events', {
+  const res = await apiFetch('/edge/push-events', {
     method: 'POST', body: JSON.stringify(body),
   }) as { ackCursor: number; accepted: number };
 
@@ -109,7 +109,7 @@ export async function push(db: EdgeDB, log: BaseLogger): Promise<void> {
 // ── HEARTBEAT ─────────────────────────────────────────────────────────────────
 export async function heartbeat(db: EdgeDB, log: BaseLogger): Promise<void> {
   const pending = db.getPendingEvents(1000).length;
-  await apiFetch('/heartbeat', {
+  await apiFetch('/edge/heartbeat', {
     method: 'POST',
     body: JSON.stringify({
       edgeDeviceId:    config.EDGE_DEVICE_ID,

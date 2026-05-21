@@ -12,10 +12,11 @@ const Env = z.object({
   EDGE_SYNC_INTERVAL_MS: z.coerce.number().default(30_000),
   EDGE_HEARTBEAT_INTERVAL_MS: z.coerce.number().default(60_000),
   // U5 physical machine
-  U5_MACHINE_IP:       z.string().optional(),
-  U5_MACHINE_PORT:     z.coerce.number().default(80),
-  U5_MACHINE_PASSWORD: z.string().default('123456'),
-  U5_MACHINE_USERNAME: z.string().default('admin'),
+  U5_MACHINE_IP:          z.string().optional(),
+  U5_MACHINE_PORT:        z.coerce.number().default(80),
+  U5_MACHINE_PASSWORD:    z.string().default('123456'),
+  U5_MACHINE_USERNAME:    z.string().default('admin'),
+  U5_POLL_INTERVAL_MS:    z.coerce.number().default(30_000),
   // Face image storage — edge PC only, never uploaded to VPS
   FACE_STORAGE_DIR:     z.string().default('./storage/faces'),
   // Employee JSON backup — full employee list snapshot per device
@@ -33,6 +34,8 @@ const Env = z.object({
   FRPC_SERVER_PORT:  z.coerce.number().default(7000),
   FRPC_TOKEN:        z.string().optional(),
   FRPC_SUBDOMAIN:    z.string().optional(),         // subdomain on VPS frps vhost
+  // Local admin UI JWT secret — defaults to EDGE_SHARED_SECRET if not set
+  LOCAL_JWT_SECRET:  z.string().optional(),
 });
 
 const parsed = Env.safeParse(process.env);
